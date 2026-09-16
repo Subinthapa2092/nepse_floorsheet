@@ -1,0 +1,7 @@
+supabase
+python-dotenv
+pytz
+httpx[http2]==0.28.1
+pywasm==2.0.0
+Flask==3.1.0
+tqdm==4.67.1
