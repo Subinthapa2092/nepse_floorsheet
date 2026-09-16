@@ -1,58 +1,13 @@
-# name: Fetch NEPSE Floorsheet and Live Prices
-
-# on:
-#   schedule:
-#     # NEPSE trading hours are ~11:00-15:00 Nepal time (NPT = UTC+5:45).
-#     # That's ~05:15-09:15 UTC. Cron doesn't support 45-minute offsets
-#     # cleanly, so this runs a little wide (05:00-09:30 UTC) every 5 min,
-#     # Sunday-Thursday (cron day-of-week: 0=Sun ... 4=Thu).
-#     # NOTE: 5 minutes is GitHub Actions' minimum cron granularity -- it
-#     # cannot poll every 60 seconds. For that, run scheduler_live_price.py
-#     # on your own always-on machine/VPS instead (see README.md).
-#     - cron: "*/5 5-9 * * 0,1,2,3,4"
-#   workflow_dispatch: {}  # lets you trigger it manually from the Actions tab
-
-# jobs:
-#   fetch:
-#     runs-on: ubuntu-latest
-#     steps:
-#       - uses: actions/checkout@v4
-
-#       - uses: actions/setup-python@v5
-#         with:
-#           python-version: "3.11"
-
-#       - name: Install dependencies
-#         run: pip install -r requirements.txt
-
-#       - name: Run floorsheet fetcher
-#         env:
-#           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-#           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-#         run: python fetch_floorsheet.py
-
-#       - name: Run live price fetcher
-#         env:
-#           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-#           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-#         run: python fetch_live_price.py
 name: Fetch NEPSE Data
 
 on:
   schedule:
-    # Monday to Friday
-    # GitHub Actions uses UTC
-    # Nepal Time = UTC + 5:45
-    #
-    # Runs every 5 minutes from approximately
-    # 11:00 AM to 3:15 PM Nepal Time.
+    # Monday to Friday (NEPSE's CURRENT trading days, changed April 2026)
+    # GitHub Actions uses UTC; Nepal Time = UTC + 5:45
+    # Runs every 5 minutes from approximately 11:00 AM to 3:15 PM Nepal Time.
     - cron: "*/5 5-8 * * 1,2,3,4,5"
     - cron: "0,5,10,15 9 * * 1,2,3,4,5"
 
-    # Runs every 5 minutes from approximately
-    # 11:00 AM to 3:15 PM Nepal Time.
-
-  # Allows manual testing from GitHub Actions
   workflow_dispatch: {}
 
 jobs:
