@@ -154,16 +154,17 @@ def fetch_sub_indices(nepse, supabase):
 
 def fetch_daily_prices(nepse, supabase):
     print("Fetching daily price/volume for all stocks...")
+    business_date = today_str()
     try:
-        data = nepse.getPriceVolume()
+        response = nepse.getPriceVolumeHistory(business_date=business_date)
+        data = response.get("content", []) if response else []
     except Exception as e:
-        print(f"  getPriceVolume() failed: {e}")
+        print(f"  getPriceVolumeHistory() failed: {e}")
         return
     if not data:
         print("  no data returned.")
         return
     fetched_at = datetime.now(timezone.utc).isoformat()
-    business_date = today_str()  # this endpoint doesn't return its own date
     rows = []
     for entry in data:
         symbol = entry.get("symbol")
@@ -172,14 +173,12 @@ def fetch_daily_prices(nepse, supabase):
         rows.append({
             "symbol": symbol,
             "business_date": business_date,
-            # getPriceVolume() has no open/high/low/turnover fields -- only
-            # last traded price, previous close, and % change are available.
-            "open_price": None,
-            "high_price": None,
-            "low_price": None,
-            "close_price": entry.get("lastTradedPrice") or entry.get("closePrice"),
-            "total_volume": entry.get("totalTradeQuantity"),
-            "total_turnover": None,
+            "open_price": entry.get("openPrice"),
+            "high_price": entry.get("highPrice"),
+            "low_price": entry.get("lowPrice"),
+            "close_price": entry.get("closePrice"),
+            "total_volume": entry.get("totalTradedQuantity"),
+            "total_turnover": entry.get("totalTradedValue"),
             "fetched_at": fetched_at,
         })
     safe_upsert(supabase, "daily_prices", rows, "symbol,business_date", "daily_prices")
