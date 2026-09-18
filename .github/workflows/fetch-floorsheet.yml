@@ -1,3 +1,48 @@
+# name: Fetch NEPSE Data
+
+# on:
+#   schedule:
+#     # Monday to Friday (NEPSE's current trading days, since April 2026)
+#     # GitHub Actions uses UTC; Nepal Time = UTC + 5:45
+#     # Runs every 5 minutes from approximately 11:00 AM to 3:15 PM Nepal Time.
+#     - cron: "*/5 5-8 * * 1,2,3,4,5"
+#     - cron: "0,5,10,15 9 * * 1,2,3,4,5"
+
+#   workflow_dispatch: {}
+
+# jobs:
+#   fetch:
+#     runs-on: ubuntu-latest
+
+#     steps:
+#       - name: Checkout repository
+#         uses: actions/checkout@v4
+
+#       - name: Set up Python
+#         uses: actions/setup-python@v5
+#         with:
+#           python-version: "3.11"
+
+#       - name: Install dependencies
+#         run: pip install -r requirements.txt
+
+#       - name: Run floorsheet fetcher
+#         env:
+#           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+#           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+#         run: python fetch_floorsheet.py
+
+#       - name: Run live price fetcher
+#         env:
+#           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+#           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+#         run: python fetch_live_price.py
+
+#       - name: Run market data fetcher
+#         env:
+#           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+#           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+#         run: python fetch_all.py
 name: Fetch NEPSE Data
 
 on:
@@ -5,9 +50,8 @@ on:
     # Monday to Friday (NEPSE's current trading days, since April 2026)
     # GitHub Actions uses UTC; Nepal Time = UTC + 5:45
     # Runs every 5 minutes from approximately 11:00 AM to 3:15 PM Nepal Time.
-    - cron: "*/5 5-8 * * 1,2,3,4,5"
-    - cron: "0,5,10,15 9 * * 1,2,3,4,5"
-
+            - cron: "3,8,13,18,23,28,33,38,43,48,53,58 5-8 * * 1,2,3,4,5"
+            - cron: "3,8,13,18 9 * * 1,2,3,4,5"
   workflow_dispatch: {}
 
 jobs:

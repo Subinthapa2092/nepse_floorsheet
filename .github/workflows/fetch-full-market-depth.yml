@@ -1,17 +1,50 @@
+# name: Fetch Full Market Depth and Company Details
+
+# on:
+#   schedule:
+#     # This loops through EVERY active security (500+), so it's slow
+#     # (several minutes) and heavier on NEPSE's server than the other
+#     # fetchers -- runs only a few times a day, not every 5 minutes.
+#     # Times below are approx 11:15 AM, 1:00 PM, and 2:45 PM Nepal time
+#     # (UTC + 5:45), Monday-Friday.
+#     - cron: "30 5 * * 1,2,3,4,5"
+#     - cron: "15 7 * * 1,2,3,4,5"
+#     - cron: "0 9 * * 1,2,3,4,5"
+#   workflow_dispatch: {}
+
+# jobs:
+#   fetch:
+#     runs-on: ubuntu-latest
+#     timeout-minutes: 30  # safety net in case of a slow/stuck run
+
+#     steps:
+#       - name: Checkout repository
+#         uses: actions/checkout@v4
+
+#       - name: Set up Python
+#         uses: actions/setup-python@v5
+#         with:
+#           python-version: "3.11"
+
+#       - name: Install dependencies
+#         run: pip install -r requirements.txt
+
+#       - name: Run full-market watchlist fetcher (company details + market depth)
+#         env:
+#           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+#           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+#         run: python fetch_watchlist.py
 name: Fetch Full Market Depth and Company Details
 
 on:
   schedule:
-    # This loops through EVERY active security (500+), so it's slow
-    # (several minutes) and heavier on NEPSE's server than the other
-    # fetchers -- runs only a few times a day, not every 5 minutes.
-    # Times below are approx 11:15 AM, 1:00 PM, and 2:45 PM Nepal time
-    # (UTC + 5:45), Monday-Friday.
-    - cron: "30 5 * * 1,2,3,4,5"
-    - cron: "15 7 * * 1,2,3,4,5"
-    - cron: "0 9 * * 1,2,3,4,5"
+    - cron: "3 5 * * 1,2,3,4,5"
+    - cron: "3 6 * * 1,2,3,4,5"
+    - cron: "3 7 * * 1,2,3,4,5"
+    - cron: "3 8 * * 1,2,3,4,5"
+    - cron: "3 9 * * 1,2,3,4,5"
   workflow_dispatch: {}
-
+  
 jobs:
   fetch:
     runs-on: ubuntu-latest
