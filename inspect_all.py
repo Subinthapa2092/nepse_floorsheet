@@ -52,6 +52,7 @@ def main():
     try_call("getTopTenTransactionScrips()", nepse.getTopTenTransactionScrips)
     try_call("getSupplyDemand()", nepse.getSupplyDemand)
     try_call("getSecurityList()", nepse.getSecurityList)
+    try_call("getSectorScrips()", nepse.getSectorScrips)
 
     print("\n\nDone. Compare the printed keys above against fetch_all.py's "
           "normalize_* functions and fix any mismatches before trusting it.")
