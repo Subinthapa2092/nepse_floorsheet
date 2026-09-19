@@ -181,14 +181,18 @@ def fetch_sub_indices(nepse, supabase):
 def fetch_daily_prices(nepse, supabase):
     print("Fetching daily price/volume for all stocks...")
     business_date = today_str()
+
     try:
         response = nepse.getPriceVolumeHistory(business_date=business_date)
         data = response.get("content", []) if response else []
     except Exception as e:
-        print(f"  getPriceVolumeHistory() failed: {e}")
+        print(f"  getPriceVolumeHistory() returned nothing for {business_date} "
+              f"-- expected on weekends/holidays when NEPSE isn't trading, "
+              f"since there's no price data for a day nothing traded. "
+              f"(raw error, often blank: {e!r})")
         return
     if not data:
-        print("  no data returned.")
+        print(f"  no data for {business_date} -- market likely closed today.")
         return
     fetched_at = datetime.now(timezone.utc).isoformat()
     rows = []
