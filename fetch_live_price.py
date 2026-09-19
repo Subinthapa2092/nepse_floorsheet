@@ -38,33 +38,47 @@ def normalize_row(row: dict, fetched_at: str) -> dict | None:
     """
     Map one raw live-market row into our Supabase table shape.
 
-    NOTE: field names are best-guess based on common NEPSE API shapes.
-    Run inspect_live_price.py and compare against the real response --
-    fix the .get(...) keys here if they don't match.
+    Confirmed via inspect_live_price.py against real NEPSE data -- the real
+    field names are: securityId, securityName, symbol, indexId, openPrice,
+    highPrice, lowPrice, totalTradeQuantity, totalTradeValue,
+    lastTradedPrice, percentageChange, lastUpdatedDateTime,
+    lastTradedVolume, previousClose, averageTradedPrice.
+
+    Two things NEPSE does NOT provide directly, so we derive them:
+    - point_change: no such field exists -- calculated as
+      lastTradedPrice - previousClose.
+    - business_date: no separate field -- derived from the date portion
+      of lastUpdatedDateTime instead.
     """
-    symbol = row.get("symbol") or row.get("stockSymbol")
+    symbol = row.get("symbol")
     if not symbol:
         return None
 
-    business_date_raw = row.get("businessDate") or row.get("tradeDate")
+    ltp = row.get("lastTradedPrice")
+    previous_close = row.get("previousClose")
+    point_change = None
+    if ltp is not None and previous_close is not None:
+        point_change = round(ltp - previous_close, 4)
+
     business_date = None
-    if business_date_raw:
+    last_updated = row.get("lastUpdatedDateTime")
+    if last_updated:
         try:
-            business_date = str(date.fromisoformat(str(business_date_raw)[:10]))
+            business_date = str(date.fromisoformat(str(last_updated)[:10]))
         except ValueError:
             business_date = None
 
     return {
         "symbol": str(symbol),
-        "security_name": row.get("securityName") or row.get("securityDesc"),
-        "ltp": row.get("lastTradedPrice") or row.get("ltp"),
-        "point_change": row.get("pointChange") or row.get("change"),
-        "percent_change": row.get("percentageChange") or row.get("percentChange"),
+        "security_name": row.get("securityName"),
+        "ltp": ltp,
+        "point_change": point_change,
+        "percent_change": row.get("percentageChange"),
         "open_price": row.get("openPrice"),
         "high_price": row.get("highPrice"),
         "low_price": row.get("lowPrice"),
-        "previous_close": row.get("previousClose") or row.get("closePrice"),
-        "volume": row.get("totalTradeQuantity") or row.get("volume"),
+        "previous_close": previous_close,
+        "volume": row.get("totalTradeQuantity"),
         "business_date": business_date,
         "fetched_at": fetched_at,
     }
