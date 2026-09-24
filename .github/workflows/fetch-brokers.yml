@@ -1,0 +1,30 @@
+name: Fetch Brokers (one-time / manual)
+
+# Manual only: it never runs on a schedule and does not touch your other
+# workflows. Run it from GitHub -> Actions -> "Fetch Brokers" -> Run workflow.
+# It uses the SAME secrets as your working "Fetch NEPSE Data" workflow.
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  brokers:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Save broker numbers and names
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: python fetch_brokers.py
