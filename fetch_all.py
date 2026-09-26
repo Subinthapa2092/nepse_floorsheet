@@ -95,6 +95,68 @@ def fetch_market_summary(nepse, supabase):
     safe_upsert(supabase, "market_summary", [row], "business_date", "market_summary")
 
 
+# def fetch_nepse_index(nepse, supabase):
+#     print("Fetching NEPSE index...")
+#     try:
+#         data = nepse.getNepseIndex()
+#     except Exception as e:
+#         print(f"  getNepseIndex() failed: {e}")
+#         return
+#     if not data:
+#         print("  no data returned.")
+#         return
+
+#     # getNepseIndex() returns SEVERAL indices (NEPSE Index, Sensitive Index,
+#     # Float Index, etc.) -- find the main "NEPSE Index" by name specifically,
+#     # rather than blindly taking the first entry.
+#     entry = next((e for e in data if e.get("index") == "NEPSE Index"), None)
+#     if entry is None:
+#         print("  couldn't find an entry named 'NEPSE Index' -- storing all "
+#               "entries' names so we can check the exact label:")
+#         print("  Available index names:", [e.get("index") for e in data])
+#         entry = data[0]  # fallback so something is stored, but flagged above
+
+#     row = {
+#         "business_date": today_str(),
+#         "index_value": entry.get("currentValue"),
+#         "point_change": entry.get("change"),
+#         "percent_change": entry.get("perChange"),
+#         "fetched_at": datetime.now(timezone.utc).isoformat(),
+#     }
+#     safe_upsert(supabase, "nepse_index", [row], "business_date", "nepse_index")
+# Paste this whole function in place of the is_stale_repeat this REPLACES the
+# existing `fetch_nepse_index` function in fetch_all.py -- delete the old
+# one entirely and put this in its place (same spot in the file is fine).
+#
+# It adds one small helper, is_stale_repeat(), used only by this function.
+
+
+def is_stale_repeat(supabase, table, row, match_cols=("index_name",)):
+    """
+    True when `row` is about to create a row for a NEW business_date whose
+    index_value / point_change / percent_change are identical to the most
+    recent EARLIER date already stored -- the signature of a holiday, where
+    NEPSE's own API just echoes the last real close with no "closed" flag.
+
+    Safe by design: it only compares against a strictly EARLIER date, so a
+    same-day refresh (running every 5 minutes on a real trading day) is
+    never affected, only ever a brand-new calendar date.
+    """
+    q = supabase.table(table).select("business_date,index_value,point_change,percent_change")
+    for col in match_cols:
+        if col in row:
+            q = q.eq(col, row[col])
+    q = q.lt("business_date", row["business_date"]).order("business_date", desc=True).limit(1)
+    prev = (q.execute().data or [None])[0]
+    if not prev:
+        return False
+    return (
+        prev["index_value"] == row["index_value"]
+        and prev["point_change"] == row["point_change"]
+        and prev["percent_change"] == row["percent_change"]
+    )
+
+
 def fetch_nepse_index(nepse, supabase):
     print("Fetching NEPSE index...")
     try:
@@ -123,6 +185,12 @@ def fetch_nepse_index(nepse, supabase):
         "percent_change": entry.get("perChange"),
         "fetched_at": datetime.now(timezone.utc).isoformat(),
     }
+
+    if is_stale_repeat(supabase, "nepse_index", row, match_cols=()):
+        print("  looks like a holiday (same close as the last trading day) "
+              "-- not writing a new dated row.")
+        return
+
     safe_upsert(supabase, "nepse_index", [row], "business_date", "nepse_index")
 
 
