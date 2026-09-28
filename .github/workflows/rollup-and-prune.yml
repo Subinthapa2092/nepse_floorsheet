@@ -1,0 +1,22 @@
+name: Archive finished days
+
+on:
+  schedule:
+    # Mon-Fri 16:30 Nepal time (10:45 UTC), well after the last fetch (~15:03)
+    - cron: "45 10 * * 1,2,3,4,5"
+  workflow_dispatch: {}
+
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - name: Roll up finished days and prune
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: python rollup_and_prune.py
