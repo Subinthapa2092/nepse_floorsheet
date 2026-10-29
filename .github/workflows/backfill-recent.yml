@@ -1,0 +1,37 @@
+name: Backfill recent prices (manual)
+
+# Manual only. Fills gaps in the last few days of daily prices, for example
+# after the daily job was down. Run it from GitHub -> Actions ->
+# "Backfill recent prices (manual)" -> Run workflow. Safe to run twice.
+
+on:
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "How many days back to check (1-120)"
+        required: false
+        default: "21"
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Backfill recent daily prices
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          DAYS: ${{ github.event.inputs.days }}
+        run: python backfill_recent.py "$DAYS"
