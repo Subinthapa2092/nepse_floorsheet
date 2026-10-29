@@ -1,0 +1,46 @@
+name: Live market loop
+
+# One job per trading day. It starts before the open and keeps fetching until
+# 15:10 Nepal time: light data every minute, heavy data every 5 minutes.
+# See live_loop.py.
+#
+# Start it with cron-job.org (reliable) and/or the schedule below (GitHub
+# can delay or skip scheduled runs). Starting it twice is harmless: the second
+# run waits in the queue, then exits straight away because the day is over.
+#
+# This job runs for about 4 hours. That is free on a PUBLIC repository. On a
+# private repository it would use up the monthly Actions minutes.
+
+on:
+  schedule:
+    # 10:50 Nepal time = 05:05 UTC, Monday to Friday
+    - cron: "5 5 * * 1,2,3,4,5"
+  workflow_dispatch: {}
+
+concurrency:
+  group: live-loop
+  cancel-in-progress: false
+
+jobs:
+  loop:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run the live loop
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: python live_loop.py
