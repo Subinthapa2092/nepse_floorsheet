@@ -1,0 +1,22 @@
+name: Roll up completed months
+
+on:
+  schedule:
+    # 2nd of every month, 05:00 UTC (well after month-end data has settled)
+    - cron: "0 5 2 * *"
+  workflow_dispatch: {}
+
+jobs:
+  rollup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - name: Roll up any complete months not yet summarised
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: python rollup_months.py
