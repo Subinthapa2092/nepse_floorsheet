@@ -2,8 +2,7 @@
 Prints what the NEPSE site answers (status code and the start of the reply) for a few floorsheet requests.
 Read only. Saves nothing. Run in the nepse_floorsheet folder:   python diag_floorsheet.py
 """
-import fetch_all as fa
-from nepse import NepseLib
+from nepse import Nepse, NepseLib
 
 _orig = NepseLib._Nepse.handle_response
 
@@ -42,7 +41,8 @@ def market_wide(n, d):
             "dates_seen": sorted({str(r.get("businessDate")) for r in rows})[:3]}
 
 
-n = fa.get_nepse_client()
+n = Nepse()
+n.setTLSVerification(False)
 attempt("1) all-stocks prices for 2026-10-29", lambda: n.getPriceVolumeHistory(business_date="2026-10-29"))
 attempt("2) NABIL floorsheet, latest session (2026-11-02)", lambda: n.getFloorSheetOf("NABIL", "2026-11-02"))
 attempt("3) NABIL floorsheet, 2026-10-29", lambda: n.getFloorSheetOf("NABIL", "2026-10-29"))
