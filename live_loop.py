@@ -37,6 +37,7 @@ import fetch_all as fa
 import fetch_floorsheet as ff
 import fetch_live_price as fl
 import fetch_watchlist as fw
+import index_graphs as ig
 
 NEPAL_TZ = pytz.timezone("Asia/Kathmandu")
 TRADING_WEEKDAYS = {0, 1, 2, 3, 4}          # Monday to Friday (Nepal)
@@ -151,6 +152,7 @@ LIGHT_STEPS = [
     ("market depth", step_market_depth),
 ]
 HEAVY_STEPS = [
+    ("index graphs", lambda nepse, supabase: ig.save_index_graphs(nepse, supabase, log=log)),
     ("floorsheet", step_floorsheet),
     ("daily prices", fa.fetch_daily_prices),
     ("rankings", fa.fetch_rankings),
