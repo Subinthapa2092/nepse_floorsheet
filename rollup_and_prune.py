@@ -1,5 +1,5 @@
 """
-Daily job: add up finished days into floorsheet_daily_summary, delete their
+Daily job: save intraday candles, add up finished days into floorsheet_daily_summary, delete their
 raw trades, and keep only the last N days of summaries in Supabase.
 
 Put this file in the nepse_floorsheet folder (next to fetch_floorsheet.py).
@@ -29,6 +29,14 @@ def main():
     ap.add_argument("--keep-summary", type=int, default=120, help="summary trading days to keep (default 120)")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
+
+    # Save the 5-minute and hourly candles of every day that still has raw trades BEFORE anything is deleted.
+    # (Needs sql/intraday_bars.sql to have been run once in Supabase. If it was not, this only prints a warning.)
+    if not args.dry_run:
+        try:
+            print("Intraday candles:", sb.rpc("save_all_intraday_candles").execute().data)
+        except Exception as e:  # never block the normal archive
+            print(f"Intraday candles NOT saved ({e}). Run sql/intraday_bars.sql in Supabase.")
 
     days = [r["business_date"] for r in sb.rpc("days_to_archive", {"p_keep": args.keep_raw}).execute().data]
     days.sort()  # oldest first
