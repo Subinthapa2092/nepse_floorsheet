@@ -8,3 +8,7 @@ __pycache__/
 .env.*
 data/*.db
 *.db
+sharehub_*
+probe_*.py
+compare_sharehub.py
+import_sharehub_history.py
