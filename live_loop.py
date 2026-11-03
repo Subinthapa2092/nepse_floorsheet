@@ -7,13 +7,14 @@ ONCE before the market opens and then loops until it closes, so the light data
 can refresh every minute.
 
 Every 60 seconds (cheap, one call each):
-    live prices, NEPSE index, sub-indices, market summary
+    live prices, NEPSE index, sub-indices, market summary, the 1-minute candles of every index
 Every minute, a rolling slice of market depth (the order book):
     DEPTH_PER_TICK symbols per minute, so every stock is refreshed in a few
     minutes. Only the LATEST depth per stock is kept (table market_depth_latest),
     so the database does not grow.
+Every 3 minutes: the floorsheet (all trades). Only NEW trades are written each time.
 Every 5 minutes (heavy, many rows or many calls):
-    floorsheet, daily prices, rankings, supply/demand
+    daily prices, rankings, supply/demand
 Once at start:
     company list
 Once after the close (15:05):
@@ -48,6 +49,7 @@ END_AT = dtime(15, 20)                      # hard stop (company details need a 
 
 LIGHT_EVERY = 60                            # seconds
 HEAVY_EVERY = 300                           # seconds
+FLOOR_EVERY = 180                           # seconds: the floorsheet is what the stock charts are built from
 DEPTH_PER_TICK = 60                         # stocks whose order book is refreshed each minute
 DEPTH_DELAY = 0.3                           # pause between NEPSE requests (seconds)
 DEPTH_TIME_BUDGET = 35                      # stop a depth slice after this many seconds
@@ -79,6 +81,9 @@ def step_live_prices(nepse, supabase) -> None:
     log(f"live prices: {len(rows)} rows")
 
 
+_seen_contracts: set = set()                # trades already written during this run
+
+
 def step_floorsheet(nepse, supabase) -> None:
     raw = nepse.getFloorSheet()
     if not raw:
@@ -86,9 +91,14 @@ def step_floorsheet(nepse, supabase) -> None:
         return
     fetched_at = datetime.now(pytz.utc).isoformat()
     rows = [r for r in (ff.normalize_row(x, fetched_at) for x in raw) if r]
-    for i in range(0, len(rows), ff.UPSERT_CHUNK_SIZE):
-        supabase.table(ff.TABLE_NAME).upsert(rows[i:i + ff.UPSERT_CHUNK_SIZE], on_conflict="contract_no").execute()
-    log(f"floorsheet: {len(rows)} rows")
+    # Only the trades we have not written yet. Writing all of the day's trades again every few minutes
+    # (up to 60,000 rows) is what made the charts fall behind.
+    new = [r for r in rows if r["contract_no"] not in _seen_contracts]
+    for i in range(0, len(new), ff.UPSERT_CHUNK_SIZE):
+        chunk = new[i:i + ff.UPSERT_CHUNK_SIZE]
+        supabase.table(ff.TABLE_NAME).upsert(chunk, on_conflict="contract_no").execute()
+        _seen_contracts.update(r["contract_no"] for r in chunk)     # remembered only after a successful write
+    log(f"floorsheet: {len(rows)} trades, {len(new)} new")
 
 
 _depth = {"symbols": [], "pos": 0}
@@ -148,12 +158,12 @@ LIGHT_STEPS = [
     ("live prices", step_live_prices),
     ("nepse index", fa.fetch_nepse_index),
     ("sub-indices", fa.fetch_sub_indices),
+    ("index graphs", lambda nepse, supabase: ig.save_index_graphs(nepse, supabase, log=log)),
     ("market summary", fa.fetch_market_summary),
     ("market depth", step_market_depth),
 ]
+FLOOR_STEPS = [("floorsheet", step_floorsheet)]
 HEAVY_STEPS = [
-    ("index graphs", lambda nepse, supabase: ig.save_index_graphs(nepse, supabase, log=log)),
-    ("floorsheet", step_floorsheet),
     ("daily prices", fa.fetch_daily_prices),
     ("rankings", fa.fetch_rankings),
     ("supply/demand", fa.fetch_supply_demand),
@@ -202,7 +212,11 @@ def main(once: bool = False) -> int:
 
         fails = run_steps(LIGHT_STEPS, nepse, supabase)
         last_heavy = getattr(main, "_last_heavy", 0.0)
+        last_floor = getattr(main, "_last_floor", 0.0)
         is_final = (not once) and now.time() >= FINAL_HEAVY_AT and not getattr(main, "_did_final", False)
+        if is_final or time.monotonic() - last_floor >= FLOOR_EVERY:
+            run_steps(FLOOR_STEPS, nepse, supabase)
+            main._last_floor = time.monotonic()
         if is_final or time.monotonic() - last_heavy >= HEAVY_EVERY:
             run_steps(HEAVY_STEPS, nepse, supabase)
             main._last_heavy = time.monotonic()
