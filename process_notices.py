@@ -74,14 +74,18 @@ def main():
         if len(unlocks) == 1:
             g = good[0]
             status, why = "published", g["why"]
-            old = db.table("promoter_unlock").select("unlock_date").eq("symbol", g["symbol"]).eq("share_type", g["share_type"]).execute().data or []
-            if old and str(old[0]["unlock_date"])[:10] != g["unlock"]:
-                status, why = "review", f"differs from the date already entered ({old[0]['unlock_date']}); notice says {g['unlock']}"
-            elif not old:
-                db.table("promoter_unlock").insert({
-                    "symbol": g["symbol"], "share_type": g["share_type"], "unlock_date": g["unlock"],
-                    "source": f"Read from the company's NEPSE notice (company news {row['news_id']}); BS date matches the printed English date",
-                }).execute()
+            old = db.table("promoter_unlock").select("unlock_date,verified").eq("symbol", g["symbol"]).eq("share_type", g["share_type"]).execute().data or []
+            src = f"Read from the company's NEPSE notice (company news {row['news_id']}); BS date matches the printed English date"
+            key = {"symbol": g["symbol"], "share_type": g["share_type"]}
+            if not old:
+                db.table("promoter_unlock").insert({**key, "unlock_date": g["unlock"], "source": src, "verified": True}).execute()
+            elif str(old[0]["unlock_date"])[:10] == g["unlock"]:
+                if old[0].get("verified") is False:  # the notice confirms a date entered earlier from another source
+                    db.table("promoter_unlock").update({"verified": True, "source": src}).eq("symbol", key["symbol"]).eq("share_type", key["share_type"]).execute()
+            elif old[0].get("verified") is False:  # an unverified date is replaced by the company's own notice
+                db.table("promoter_unlock").update({"unlock_date": g["unlock"], "verified": True, "source": src}).eq("symbol", key["symbol"]).eq("share_type", key["share_type"]).execute()
+            else:  # a date someone already confirmed disagrees with this notice: a person decides
+                status, why = "review", f"differs from the confirmed date already entered ({old[0]['unlock_date']}); notice says {g['unlock']}"
             result = {**g, "status": status, "why": why}
         else:
             status = "review"
