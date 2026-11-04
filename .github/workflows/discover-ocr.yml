@@ -1,0 +1,36 @@
+name: Test notice OCR (one-time / manual)
+
+# Manual only. Downloads up to 3 NEPSE lock-in notice PDFs and tries to read the date with OCR.
+# Writes NOTHING to your database and needs no secrets. Run it from GitHub -> Actions -> "Test notice OCR" -> Run workflow.
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  ocr:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install OCR tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils tesseract-ocr tesseract-ocr-nep
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Download notices and read them
+        run: python discover_ocr.py | tee discover4.txt
+
+      - name: Save the result
+        uses: actions/upload-artifact@v4
+        with:
+          name: discover4-result
+          path: discover4.txt
