@@ -1,0 +1,30 @@
+name: Collect company news
+
+# Saves NEPSE's newest announcements to the private company_news table, a few times a day, and marks lock-in ones.
+# Uses the SAME secrets as your other jobs. Also runnable by hand: Actions -> Collect company news -> Run workflow.
+
+on:
+  schedule:
+    - cron: "20 3,6,9,12 * * *"   # UTC; about 9:05, 12:05, 15:05 and 18:05 Nepal time
+  workflow_dispatch: {}
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Save new company news
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: python collect_company_news.py
