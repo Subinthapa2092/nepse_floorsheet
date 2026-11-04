@@ -1,0 +1,31 @@
+name: Discover notice PDF (one-time / manual)
+
+# Manual only. Tries to download one NEPSE notice PDF and read its text. Writes NOTHING to your database, needs no secrets.
+# Run it from GitHub -> Actions -> "Discover notice PDF" -> Run workflow.
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt pypdf
+
+      - name: Try to download and read a notice
+        run: python discover_pdf.py | tee discover3.txt
+
+      - name: Save the result
+        uses: actions/upload-artifact@v4
+        with:
+          name: discover3-result
+          path: discover3.txt
