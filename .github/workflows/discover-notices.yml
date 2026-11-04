@@ -1,0 +1,31 @@
+name: Discover NEPSE notices (one-time / manual)
+
+# Manual only. Reads NEPSE's public site and prints which notice addresses exist. It writes NOTHING to your database
+# and needs no secrets. Run it from GitHub -> Actions -> "Discover NEPSE notices" -> Run workflow.
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Look for notice addresses
+        run: python discover_notices.py | tee discover.txt
+
+      - name: Save the result
+        uses: actions/upload-artifact@v4
+        with:
+          name: discover-result
+          path: discover.txt
