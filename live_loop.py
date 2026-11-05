@@ -49,7 +49,7 @@ END_AT = dtime(15, 20)                      # hard stop (company details need a 
 
 LIGHT_EVERY = 60                            # seconds
 HEAVY_EVERY = 300                           # seconds
-FLOOR_EVERY = 180                           # seconds: the floorsheet is what the stock charts are built from
+FLOOR_EVERY = 60                           # seconds: the floorsheet is what the stock charts are built from
 DEPTH_PER_TICK = 60                         # stocks whose order book is refreshed each minute
 DEPTH_DELAY = 0.3                           # pause between NEPSE requests (seconds)
 DEPTH_TIME_BUDGET = 35                      # stop a depth slice after this many seconds
