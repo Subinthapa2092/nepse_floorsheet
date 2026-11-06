@@ -108,6 +108,22 @@ def f(x):
         return 0.0
 
 
+SECTOR_NE = {
+    "banking": "बैंकिङ", "commercial banks": "वाणिज्य बैंक", "development bank": "विकास बैंक", "development banks": "विकास बैंक",
+    "finance": "वित्त कम्पनी", "hydropower": "जलविद्युत्", "life insurance": "जीवन बीमा", "non life insurance": "निर्जीवन बीमा",
+    "microfinance": "लघुवित्त", "mutual fund": "म्युचुअल फण्ड", "investment": "लगानी", "hotels and tourism": "होटल तथा पर्यटन",
+    "hotel and tourism": "होटल तथा पर्यटन", "manufacturing and processing": "उत्पादन तथा प्रशोधन", "trading": "व्यापार",
+    "others": "अन्य", "other": "अन्य", "corporate debenture": "ऋणपत्र",
+}
+
+
+def sector_name(name, lang):
+    if lang != "ne":
+        return name
+    key = name.lower().replace("&", "and").replace("-", " ").strip()
+    return SECTOR_NE.get(key, name)
+
+
 def clean_sector(name):
     import re
 
@@ -203,7 +219,7 @@ def build(fa, lang):
     if ne:
         verb = "अपरिवर्तित" if flat else ("बढेर" if up else "घटेर")
         title = f"नेप्से सूचकाङ्क {num(fa['value'], lang)} मा बन्द; कारोबार {turn}" if flat else f"नेप्से {n2(fa['pts'])} अङ्कले {'बढेर' if up else 'घटेर'} {num(fa['value'], lang)} मा बन्द; कारोबार {turn}"
-        parts = [f"{when} मा नेप्से सूचकाङ्क {num(fa['value'], lang)} मा बन्द भयो।" if flat else f"{when} मा नेप्से सूचकाङ्क {n2(fa['pts'])} अङ्क ({n2(fa['pct'])}%) {'बढेर' if up else 'घटेर'} {num(fa['value'], lang)} मा बन्द भयो।"]
+        parts = [f"{when} मा नेप्से सूचकाङ्क {num(fa['value'], lang)} मा बन्द भयो।" if flat else f"{when} मा नेप्से सूचकाङ्क {n2(fa['pts'])} अङ्कले ({n2(fa['pct'])}%) {'बढेर' if up else 'घटेर'} {num(fa['value'], lang)} मा बन्द भयो।"]
         parts.append(f"कारोबार रकम {turn} रह्यो{cmp_ne}।")
         summary = parts[0] + (f" {whole(fa['advanced'], lang)} कम्पनीको भाउ बढ्यो र {whole(fa['declined'], lang)} कम्पनीको घट्यो।" if "advanced" in fa else "")
     else:
@@ -218,7 +234,7 @@ def build(fa, lang):
     body.append(f"- {L('NEPSE index', 'नेप्से सूचकाङ्क')}: {num(fa['value'], lang)} ({'+' if up else '-'}{n2(fa['pts'])}, {'+' if up else '-'}{n2(fa['pct'])}%)")
     body.append(f"- {L('Turnover', 'कारोबार रकम')}: {turn}")
     if fa.get("volume"):
-        body.append(f"- {L('Shares traded', 'कारोबार भएका शेयर')}: {shares(fa['volume'], lang)}")
+        body.append(f"- {L('Shares traded', 'कारोबार भएका शेयर कित्ता')}: {shares(fa['volume'], lang)}")
     if fa.get("trans"):
         body.append(f"- {L('Transactions', 'कारोबार संख्या')}: {whole(fa['trans'], lang)}")
     if fa.get("scrips"):
@@ -230,14 +246,14 @@ def build(fa, lang):
         if items:
             body.extend(["", L(head_en, head_ne), ""] + [f"- {s}: {L('Rs', 'रु')} {num(p, lang)} ({'+' if c > 0 else '-'}{n2(c)}%)" for s, p, c in items])
 
-    lst("## Top gainers", "## सबैभन्दा बढी बढ्ने", fa.get("gainers"))
-    lst("## Top losers", "## सबैभन्दा बढी घट्ने", fa.get("losers"))
+    lst("## Top gainers", "## सबैभन्दा धेरै बढ्ने", fa.get("gainers"))
+    lst("## Top losers", "## सबैभन्दा धेरै घट्ने", fa.get("losers"))
     if fa.get("busiest"):
-        body.extend(["", L("## Most traded by turnover", "## सबैभन्दा बढी कारोबार"), ""] + [f"- {s}: {money(t, lang)}" for s, t in fa["busiest"]])
+        body.extend(["", L("## Most traded by turnover", "## सबैभन्दा धेरै कारोबार हुने"), ""] + [f"- {s}: {money(t, lang)}" for s, t in fa["busiest"]])
     if fa.get("best_sector"):
         (bn, bp), (wn, wp) = fa["best_sector"], fa["worst_sector"]
         sg = lambda p: ("+" if p > 0 else "-" if p < 0 else "") + n2(p) + "%"
-        body.extend(["", L("## Sectors", "## क्षेत्रगत अवस्था"), "", f"- {L('Strongest', 'सबैभन्दा बलियो')}: {bn} ({sg(bp)})", f"- {L('Weakest', 'सबैभन्दा कमजोर')}: {wn} ({sg(wp)})"])
+        body.extend(["", L("## Sectors", "## क्षेत्रगत अवस्था"), "", f"- {L('Strongest', 'सबैभन्दा बलियो')}: {sector_name(bn, lang)} ({sg(bp)})", f"- {L('Weakest', 'सबैभन्दा कमजोर')}: {sector_name(wn, lang)} ({sg(wp)})"])
     body.extend(["", L("This summary is written automatically from NEPSE data. It is for information and is not investment advice.", "यो सारांश नेप्सेको तथ्याङ्कबाट स्वचालित रूपमा तयार गरिएको हो। यो जानकारीका लागि हो, लगानी सल्लाह होइन।")])
     return title, summary, "\n".join(body)
 
