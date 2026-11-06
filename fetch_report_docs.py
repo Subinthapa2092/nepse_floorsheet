@@ -25,14 +25,16 @@ try:
 except ImportError:
     pass
 
-KEEP_DAYS = 120
+KEEP_DAYS = 45
 MAX_BYTES = 5 * 1024 * 1024
 DEFAULT_LIMIT = 40
 PAUSE = 2.0
 BUCKET = "announcement-docs"
 UA = "Arthotix/1.0 (quarterly report documents)"
 PAGE = "https://merolagani.com/AnnouncementDetail.aspx?id={}&ntf=true"
-PDF_RE = re.compile(r"https?://images\.merolagani\.com/+Uploads/Repository/[0-9A-Za-z_\-]+\.pdf", re.I)
+FILE_RE = re.compile(r"(?:https?://images\.merolagani\.com)?/+Uploads/Repository/[0-9A-Za-z_\-]+\.(pdf|gif|jpe?g|png)", re.I)
+MAGIC = {"pdf": (b"%PDF",), "gif": (b"GIF8",), "jpg": (b"\xff\xd8",), "jpeg": (b"\xff\xd8",), "png": (b"\x89PNG",)}
+CTYPE = {"pdf": "application/pdf", "gif": "image/gif", "jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png"}
 
 
 def report_day(date_text):
@@ -40,9 +42,16 @@ def report_day(date_text):
     return date(int(m[1]), int(m[2]), int(m[3])) if m else None
 
 
-def find_pdf_url(html):
-    m = PDF_RE.search(html or "")
-    return m.group(0).replace("com//", "com/") if m else None
+def find_file_url(html):
+    """The report's file on the announcement page: a PDF when there is one, otherwise the image the company uploaded."""
+    found = []
+    for m in FILE_RE.finditer(html or ""):
+        path = re.sub(r"^.*?/+Uploads/", "/Uploads/", m.group(0))
+        found.append(("https://images.merolagani.com" + path.replace("/Uploads/", "//Uploads/", 1).replace("//", "/", 1), m.group(1).lower()))
+    for url, ext in found:
+        if ext == "pdf":
+            return url, ext
+    return found[0] if found else (None, None)
 
 
 def main():
@@ -72,23 +81,40 @@ def main():
         return
 
     ok = missing = total = 0
+    reasons = {}
     with httpx.Client(headers={"User-Agent": UA}, timeout=30, follow_redirects=True) as http:
         for aid, sym, d in todo[:limit]:
             path = None
+            why = None
             try:
                 page = http.get(PAGE.format(aid))
                 time.sleep(PAUSE)
-                url = find_pdf_url(page.text) if page.status_code == 200 else None
-                if url:
-                    f = http.get(url)
-                    time.sleep(PAUSE)
-                    if f.status_code == 200 and f.content[:4] == b"%PDF" and len(f.content) <= MAX_BYTES:
-                        name = f"reports/{aid}.pdf"
-                        sb.storage.from_(BUCKET).upload(path=name, file=f.content, file_options={"content-type": "application/pdf", "upsert": "true"})
-                        path = name
-                        total += len(f.content)
+                if page.status_code != 200:
+                    why = f"page answered {page.status_code}"
+                else:
+                    url, ext = find_file_url(page.text)
+                    if not url:
+                        why = "page has no file link"
+                    else:
+                        f = http.get(url)
+                        time.sleep(PAUSE)
+                        if f.status_code != 200:
+                            why = f"file answered {f.status_code}"
+                        elif not f.content.startswith(MAGIC[ext]):
+                            why = f"file is not a real {ext}"
+                        elif len(f.content) > MAX_BYTES:
+                            why = "file is over 5 MB"
+                        else:
+                            name = f"reports/{aid}.{ext}"
+                            sb.storage.from_(BUCKET).upload(path=name, file=f.content, file_options={"content-type": CTYPE[ext], "upsert": "true"})
+                            path = name
+                            total += len(f.content)
             except Exception as e:  # tried again on the next run, up to 3 times
-                print(f"  {sym} {aid}: {type(e).__name__}")
+                why = type(e).__name__ + ": " + str(e)[:80]
+            if why:
+                reasons[why] = reasons.get(why, 0) + 1
+                if sum(reasons.values()) <= 3:
+                    print(f"  {sym} {aid}: {why}")
             prev = (have.get(aid) or {}).get("attempts", 0)
             sb.table("report_docs").upsert(
                 {"announcement_id": aid, "symbol": sym, "report_date": d.isoformat(), "doc_path": path,
@@ -96,6 +122,8 @@ def main():
                 on_conflict="announcement_id").execute()
             ok += 1 if path else 0
             missing += 0 if path else 1
+    if reasons:
+        print("Why files were not saved:", reasons)
     print(f"Saved {ok} report files ({total / 1048576:.1f} MB, about {total / max(ok, 1) / 1048576:.2f} MB each), {missing} without a file this time.")
 
     old = sb.table("report_docs").select("announcement_id,doc_path").lt("report_date", cutoff.isoformat()).limit(300).execute().data or []
