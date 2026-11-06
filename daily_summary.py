@@ -325,19 +325,19 @@ def build(fa, lang):
             p2.append(f"पछिल्ला पाँच कारोबार दिनमा सूचकाङ्क {n2(fa['week_pct'])}% {'ले बढेको' if fa['week_pct'] >= 0 else 'ले घटेको'} छ।")
     else:
         if "advanced" in fa:
-            p1.append(f"Of {whole(traded, lang)} stocks traded, {whole(fa['advanced'], lang)} advanced, {whole(fa['declined'], lang)} declined and {whole(fa['unchanged'], lang)} {'was' if fa['unchanged'] == 1 else 'were'} unchanged.")
+            p1.append(f"Of the {whole(traded, lang)} stocks that traded, {whole(fa['advanced'], lang)} advanced, {whole(fa['declined'], lang)} declined and {whole(fa['unchanged'], lang)} {'was' if fa['unchanged'] == 1 else 'were'} unchanged.")
         bits = []
         if pc is not None:
             bits.append(f"{abs(pc):.1f}% {'above' if pc > 0 else 'below'} the previous session")
         if avg is not None:
-            bits.append(f"{abs(avg):.1f}% {'above' if avg > 0 else 'below'} the average of the last five sessions")
+            bits.append(f"{abs(avg):.1f}% {'above' if avg > 0 else 'below'} the five-session average")
         if bits:
             p1.append("Turnover was " + " and ".join(bits) + ".")
         if fa.get("sectors"):
             (bn, bp), (wn, wp) = fa["sectors"][0], fa["sectors"][-1]
             p2.append(f"{bn} ({sg(bp)}) was the strongest sector and {wn} ({sg(wp)}) the weakest.")
         if "week_pct" in fa:
-            p2.append(f"Over the last five sessions the index is {'up' if fa['week_pct'] >= 0 else 'down'} {n2(fa['week_pct'])}%.")
+            p2.append(f"The index is {'up' if fa['week_pct'] >= 0 else 'down'} {n2(fa['week_pct'])}% over the last five sessions.")
     body = []
     if p1:
         body += [" ".join(p1), ""]
@@ -396,7 +396,7 @@ def build(fa, lang):
         tail = L("See all announcements", "सबै सूचना हेर्नुहोस्")
         body += ["", f"[{tail}](/announcements)" + (f" ({whole(more, lang)} {L('more today', 'थप आज')})" if more > 0 else "")]
 
-    body += ["", L("This summary is written automatically from NEPSE data. It is for information and is not investment advice.", "यो सारांश नेप्सेको तथ्याङ्कबाट स्वचालित रूपमा तयार गरिएको हो। यो जानकारीका लागि हो, लगानी सल्लाह होइन।")]
+    body += ["", "::: note", L("Written automatically from NEPSE data.", "नेप्सेको तथ्याङ्कबाट स्वचालित रूपमा तयार गरिएको।"), ":::"]
     return title, summary, "\n".join(body)
 
 
