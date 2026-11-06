@@ -130,6 +130,31 @@ def clean_sector(name):
     return re.sub(r"\s*(sub[\s-]?)?index\s*$", "", str(name), flags=re.I).strip() or str(name)
 
 
+def next_day(d):
+    from datetime import timedelta
+
+    return (date.fromisoformat(d) + timedelta(days=1)).isoformat()
+
+
+def dividend_text(body):
+    """'Cash 3.78%, Bonus 3.7%' from the announcement text, or ''."""
+    import re
+
+    out = []
+    for label, rx in (("Cash", r"cash dividend\s*:?\s*([\d.]+)\s*%"), ("Bonus", r"bonus (?:shares?|dividend)\s*:?\s*([\d.]+)\s*%"), ("Right", r"right (?:shares?)?\s*:?\s*([\d.]+)\s*%")):
+        m = re.search(rx, body or "", flags=re.I)
+        if m:
+            out.append((label, m.group(1)))
+    return out
+
+
+ANN_ORDER = ["dividend", "right", "ipo", "agm", "sale", "promoter", "report"]
+ANN_LABEL = {
+    "dividend": ("Dividend & bonus", "लाभांश र बोनस"), "right": ("Right share", "हकप्रद शेयर"), "ipo": ("IPO & listing", "आईपीओ तथा सूचीकरण"),
+    "agm": ("AGM", "साधारण सभा"), "sale": ("Share sale", "शेयर बिक्री"), "promoter": ("Promoter conversion", "संस्थापक शेयर रूपान्तरण"), "report": ("Report", "प्रतिवेदन"),
+}
+
+
 def gather(sb, want=None):
     """Everything the story needs for one trading day, or (None, reason)."""
     rows = sb.table("nepse_index").select("business_date,index_value,point_change,percent_change").order("business_date", desc=True).limit(12).execute().data or []
@@ -152,13 +177,24 @@ def gather(sb, want=None):
     value, pv = f(cur["index_value"]), f(prev["index_value"])
     facts = {"date": d, "value": value, "pts": value - pv, "pct": (value - pv) / pv * 100 if pv else 0.0, "movers": None}
 
-    ms = sb.table("market_summary").select("business_date,total_turnover,total_traded_shares,total_transactions,total_scrips_traded").lte("business_date", d).order("business_date", desc=True).limit(2).execute().data or []
+    # the last five sessions, for context
+    week = [f(r["index_value"]) for r in rows[pos:pos + 5]]
+    if len(rows) >= pos + 5:
+        facts["week_hi"], facts["week_lo"] = max(week), min(week)
+        if len(rows) > pos + 5:  # change over the five sessions, against the close just before them
+            start = f(rows[pos + 5]["index_value"])
+            facts["week_pct"] = (value - start) / start * 100 if start else 0.0
+
+    ms = sb.table("market_summary").select("business_date,total_turnover,total_traded_shares,total_transactions,total_scrips_traded").lte("business_date", d).order("business_date", desc=True).limit(6).execute().data or []
     if ms and str(ms[0]["business_date"]) == d:
         facts["turnover"] = f(ms[0].get("total_turnover"))
         facts["volume"] = f(ms[0].get("total_traded_shares"))
         facts["trans"] = f(ms[0].get("total_transactions"))
         facts["scrips"] = f(ms[0].get("total_scrips_traded"))
         facts["prev_turnover"] = f(ms[1].get("total_turnover")) if len(ms) > 1 else 0.0
+        earlier = [f(r.get("total_turnover")) for r in ms[1:6] if f(r.get("total_turnover")) > 0]
+        if len(earlier) >= 3:
+            facts["avg_turnover"] = sum(earlier) / len(earlier)
     if not facts.get("turnover"):
         return None, "turnover for that day is not saved yet"
 
@@ -169,23 +205,52 @@ def gather(sb, want=None):
         dn = sorted([r for r in today if f(r["percent_change"]) < 0], key=lambda r: f(r["percent_change"]))
         facts["advanced"], facts["declined"] = len(up), len(dn)
         facts["unchanged"] = len(today) - len(up) - len(dn)
-        facts["gainers"] = [(r["symbol"], f(r["ltp"]), f(r["percent_change"])) for r in up[:3]]
-        facts["losers"] = [(r["symbol"], f(r["ltp"]), f(r["percent_change"])) for r in dn[:3]]
+        facts["gainers"] = [(r["symbol"], f(r["ltp"]), f(r["percent_change"])) for r in up[:5]]
+        facts["losers"] = [(r["symbol"], f(r["ltp"]), f(r["percent_change"])) for r in dn[:5]]
 
     try:
         sec = sb.table("nepse_sub_indices").select("index_name,percent_change,business_date").eq("business_date", d).execute().data or []
         sec = [(clean_sector(r["index_name"]), f(r["percent_change"])) for r in sec if r.get("index_name") and str(r["index_name"]).strip().lower() not in NOT_SECTORS]
         sec.sort(key=lambda x: -x[1])
         if len(sec) >= 2:
-            facts["best_sector"], facts["worst_sector"] = sec[0], sec[-1]
+            facts["sectors"] = sec
     except Exception:
         pass
 
     try:
         tot = sb.rpc("symbol_day_totals", {"p_date": d}).execute().data or []
-        tot = sorted(tot, key=lambda r: -f(r.get("turnover")))[:3]
+        tot = sorted(tot, key=lambda r: -f(r.get("turnover")))[:5]
         if tot and f(tot[0].get("turnover")) > 0:
             facts["busiest"] = [(r["symbol"], f(r["turnover"])) for r in tot]
+    except Exception:
+        pass
+
+    try:
+        st = sb.rpc("broker_stats_by_broker", {"p_from": d, "p_to": d, "p_symbol": None}).execute().data or []
+        names = {str(b["broker_no"]).strip(): str(b["broker_name"]).strip() for b in (sb.table("brokers").select("broker_no,broker_name").limit(1000).execute().data or [])}
+        net = sorted([(str(r.get("broker")), f(r.get("buy_amt")) - f(r.get("sell_amt"))) for r in st], key=lambda x: -x[1])
+        buyers = [(n, a) for n, a in net if a > 0][:3]
+        sellers = [(n, a) for n, a in reversed(net) if a < 0][:3]
+        if buyers and sellers:
+            facts["brokers"] = {"buyers": [(n, names.get(n, ""), a) for n, a in buyers], "sellers": [(n, names.get(n, ""), -a) for n, a in sellers]}
+    except Exception:
+        pass
+
+    try:
+        start = f"{d}T00:00:00+05:45"
+        end = f"{next_day(d)}T00:00:00+05:45"
+        an = sb.table("announcements").select("symbol,title,body,category,added_at").gte("added_at", start).lt("added_at", end).limit(300).execute().data or []
+        an = [a for a in an if a.get("category") in ANN_ORDER and a.get("symbol")]
+        an.sort(key=lambda a: (ANN_ORDER.index(a["category"]), a["symbol"]))
+        seen, keep = set(), []
+        for a in an:
+            k = (a["symbol"], a["category"])
+            if k not in seen:
+                seen.add(k)
+                keep.append((a["symbol"], a["category"], dividend_text(a.get("body")) if a["category"] == "dividend" else []))
+        if keep:
+            facts["disclosures"] = keep[:10]
+            facts["disclosure_count"] = len(keep)
     except Exception:
         pass
     return facts, None
@@ -201,60 +266,137 @@ def long_date(d, lang):
     return f"{dd} {MONTHS[m - 1]} {y}"
 
 
+def table(headers, rows, right_from=1):
+    """A markdown table the site shows as a proper table."""
+    out = ["| " + " | ".join(headers) + " |", "| " + " | ".join(("---:" if i >= right_from else "---") for i in range(len(headers))) + " |"]
+    out += ["| " + " | ".join(str(c) for c in r) + " |" for r in rows]
+    return out
+
+
 def build(fa, lang):
     """(title, summary, body) in 'en' or 'ne'."""
     ne = lang == "ne"
+    L = lambda en, nep: nep if ne else en
     n2 = lambda v: num(abs(v), lang)
+    sg = lambda p: ("+" if p > 0 else "-" if p < 0 else "") + n2(p) + "%"
     up = fa["pts"] >= 0
     flat = abs(fa["pts"]) < 0.005
     when = long_date(fa["date"], lang)
     turn = money(fa["turnover"], lang)
-    cmp_en = cmp_ne = ""
+    traded = fa.get("advanced", 0) + fa.get("declined", 0) + fa.get("unchanged", 0)
+
+    pc = None
     if fa.get("prev_turnover"):
         ch = (fa["turnover"] - fa["prev_turnover"]) / fa["prev_turnover"] * 100
         if abs(ch) >= 0.5:
-            cmp_en = f", {'up' if ch > 0 else 'down'} {abs(ch):.1f}% from the previous session"
-            cmp_ne = f", अघिल्लो कारोबार दिनभन्दा {ne_digits(f'{abs(ch):.1f}')}% {'बढी' if ch > 0 else 'कम'}"
+            pc = ch
+    avg = None
+    if fa.get("avg_turnover"):
+        ch = (fa["turnover"] - fa["avg_turnover"]) / fa["avg_turnover"] * 100
+        if abs(ch) >= 0.5:
+            avg = ch
 
+    # ---- title and card summary
     if ne:
-        verb = "अपरिवर्तित" if flat else ("बढेर" if up else "घटेर")
         title = f"नेप्से सूचकाङ्क {num(fa['value'], lang)} मा बन्द; कारोबार {turn}" if flat else f"नेप्से {n2(fa['pts'])} अङ्कले {'बढेर' if up else 'घटेर'} {num(fa['value'], lang)} मा बन्द; कारोबार {turn}"
-        parts = [f"{when} मा नेप्से सूचकाङ्क {num(fa['value'], lang)} मा बन्द भयो।" if flat else f"{when} मा नेप्से सूचकाङ्क {n2(fa['pts'])} अङ्कले ({n2(fa['pct'])}%) {'बढेर' if up else 'घटेर'} {num(fa['value'], lang)} मा बन्द भयो।"]
-        parts.append(f"कारोबार रकम {turn} रह्यो{cmp_ne}।")
-        summary = parts[0] + (f" {whole(fa['advanced'], lang)} कम्पनीको भाउ बढ्यो र {whole(fa['declined'], lang)} कम्पनीको घट्यो।" if "advanced" in fa else "")
+        first = f"{when} मा नेप्से सूचकाङ्क {num(fa['value'], lang)} मा बन्द भयो।" if flat else f"{when} मा नेप्से सूचकाङ्क {n2(fa['pts'])} अङ्कले ({n2(fa['pct'])}%) {'बढेर' if up else 'घटेर'} {num(fa['value'], lang)} मा बन्द भयो।"
+        summary = first + f" कारोबार रकम {turn} रह्यो।"
     else:
         title = f"NEPSE ends flat at {num(fa['value'], lang)}; turnover {turn}" if flat else f"NEPSE {'rises' if up else 'falls'} {n2(fa['pts'])} points to {num(fa['value'], lang)}; turnover {turn}"
-        parts = [f"The NEPSE index closed flat at {num(fa['value'], lang)} on {when}." if flat else f"The NEPSE index {'rose' if up else 'fell'} {n2(fa['pts'])} points, or {n2(fa['pct'])}%, to close at {num(fa['value'], lang)} on {when}."]
-        parts.append(f"Turnover was {turn}{cmp_en}.")
-        summary = parts[0] + (f" {whole(fa['advanced'], lang)} {'stock' if fa['advanced'] == 1 else 'stocks'} rose and {whole(fa['declined'], lang)} fell." if "advanced" in fa else "")
+        first = f"The NEPSE index closed flat at {num(fa['value'], lang)} on {when}." if flat else f"The NEPSE index {'rose' if up else 'fell'} {n2(fa['pts'])} points, or {n2(fa['pct'])}%, to close at {num(fa['value'], lang)} on {when}."
+        summary = first + f" Turnover was {turn}."
 
-    L = lambda en, nep: nep if ne else en
-    body = [parts[1], ""]
-    body.extend([L("## Market at a glance", "## बजार एक नजरमा"), ""])
-    body.append(f"- {L('NEPSE index', 'नेप्से सूचकाङ्क')}: {num(fa['value'], lang)} ({'+' if up else '-'}{n2(fa['pts'])}, {'+' if up else '-'}{n2(fa['pct'])}%)")
-    body.append(f"- {L('Turnover', 'कारोबार रकम')}: {turn}")
+    # ---- opening paragraphs
+    p1, p2 = [], []
+    if ne:
+        if "advanced" in fa:
+            p1.append(f"कारोबार भएका {whole(traded, lang)} कम्पनीमध्ये {whole(fa['advanced'], lang)} को भाउ बढ्यो, {whole(fa['declined'], lang)} को घट्यो र {whole(fa['unchanged'], lang)} अपरिवर्तित रहे।")
+        bits = []
+        if pc is not None:
+            bits.append(f"अघिल्लो कारोबार दिनभन्दा {ne_digits(f'{abs(pc):.1f}')}% {'बढी' if pc > 0 else 'कम'}")
+        if avg is not None:
+            bits.append(f"पछिल्ला पाँच कारोबार दिनको औसतभन्दा {ne_digits(f'{abs(avg):.1f}')}% {'माथि' if avg > 0 else 'तल'}")
+        if bits:
+            p1.append("कारोबार रकम " + " र ".join(bits) + " रह्यो।")
+        if fa.get("sectors"):
+            (bn, bp), (wn, wp) = fa["sectors"][0], fa["sectors"][-1]
+            p2.append(f"क्षेत्रगत रूपमा {sector_name(bn, lang)} ({sg(bp)}) सबैभन्दा बलियो र {sector_name(wn, lang)} ({sg(wp)}) सबैभन्दा कमजोर रह्यो।")
+        if "week_pct" in fa:
+            p2.append(f"पछिल्ला पाँच कारोबार दिनमा सूचकाङ्क {n2(fa['week_pct'])}% {'ले बढेको' if fa['week_pct'] >= 0 else 'ले घटेको'} छ।")
+    else:
+        if "advanced" in fa:
+            p1.append(f"Of {whole(traded, lang)} stocks traded, {whole(fa['advanced'], lang)} advanced, {whole(fa['declined'], lang)} declined and {whole(fa['unchanged'], lang)} {'was' if fa['unchanged'] == 1 else 'were'} unchanged.")
+        bits = []
+        if pc is not None:
+            bits.append(f"{abs(pc):.1f}% {'above' if pc > 0 else 'below'} the previous session")
+        if avg is not None:
+            bits.append(f"{abs(avg):.1f}% {'above' if avg > 0 else 'below'} the average of the last five sessions")
+        if bits:
+            p1.append("Turnover was " + " and ".join(bits) + ".")
+        if fa.get("sectors"):
+            (bn, bp), (wn, wp) = fa["sectors"][0], fa["sectors"][-1]
+            p2.append(f"{bn} ({sg(bp)}) was the strongest sector and {wn} ({sg(wp)}) the weakest.")
+        if "week_pct" in fa:
+            p2.append(f"Over the last five sessions the index is {'up' if fa['week_pct'] >= 0 else 'down'} {n2(fa['week_pct'])}%.")
+    body = []
+    if p1:
+        body += [" ".join(p1), ""]
+    if p2:
+        body += [" ".join(p2), ""]
+
+    # ---- at a glance: a row of boxes (the site draws "::: stats" blocks)
+    boxes = [(L("Turnover", "कारोबार रकम"), turn, "")]
     if fa.get("volume"):
-        body.append(f"- {L('Shares traded', 'कारोबार भएका शेयर कित्ता')}: {shares(fa['volume'], lang)}")
+        boxes.append((L("Shares traded", "कारोबार भएका शेयर कित्ता"), shares(fa["volume"], lang), ""))
     if fa.get("trans"):
-        body.append(f"- {L('Transactions', 'कारोबार संख्या')}: {whole(fa['trans'], lang)}")
+        boxes.append((L("Transactions", "कारोबार संख्या"), whole(fa["trans"], lang), ""))
     if fa.get("scrips"):
-        body.append(f"- {L('Companies traded', 'कारोबार भएका कम्पनी')}: {whole(fa['scrips'], lang)}")
+        boxes.append((L("Companies traded", "कारोबार भएका कम्पनी"), whole(fa["scrips"], lang), ""))
     if "advanced" in fa:
-        body.append(f"- {L('Advanced / declined / unchanged', 'बढे / घटे / अपरिवर्तित')}: {whole(fa['advanced'], lang)} / {whole(fa['declined'], lang)} / {whole(fa['unchanged'], lang)}")
+        boxes.append((L("Advanced", "बढे"), whole(fa["advanced"], lang), "up"))
+        boxes.append((L("Declined", "घटे"), whole(fa["declined"], lang), "down"))
+    body += ["::: stats"] + [f"{lab} | {val}" + (f" | {tone}" if tone else "") for lab, val, tone in boxes] + [":::", ""]
 
-    def lst(head_en, head_ne, items):
+    # ---- sectors
+    if fa.get("sectors"):
+        body += ["", L("## Sectors", "## क्षेत्रगत अवस्था"), ""]
+        body += table([L("Sector", "क्षेत्र"), L("Change", "परिवर्तन")], [(sector_name(n, lang), sg(p)) for n, p in fa["sectors"]])
+
+    # ---- movers
+    def movers(head_en, head_ne, items):
         if items:
-            body.extend(["", L(head_en, head_ne), ""] + [f"- {s}: {L('Rs', 'रु')} {num(p, lang)} ({'+' if c > 0 else '-'}{n2(c)}%)" for s, p, c in items])
+            return ["", L(head_en, head_ne), ""] + table([L("Stock", "कम्पनी"), L("Price (Rs)", "भाउ (रु)"), L("Change", "परिवर्तन")], [(s_, num(p, lang), sg(c)) for s_, p, c in items])
+        return []
 
-    lst("## Top gainers", "## सबैभन्दा धेरै बढ्ने", fa.get("gainers"))
-    lst("## Top losers", "## सबैभन्दा धेरै घट्ने", fa.get("losers"))
+    body += movers("## Top gainers", "## सबैभन्दा धेरै बढ्ने", fa.get("gainers"))
+    body += movers("## Top losers", "## सबैभन्दा धेरै घट्ने", fa.get("losers"))
     if fa.get("busiest"):
-        body.extend(["", L("## Most traded by turnover", "## सबैभन्दा धेरै कारोबार हुने"), ""] + [f"- {s}: {money(t, lang)}" for s, t in fa["busiest"]])
-    if fa.get("best_sector"):
-        (bn, bp), (wn, wp) = fa["best_sector"], fa["worst_sector"]
-        sg = lambda p: ("+" if p > 0 else "-" if p < 0 else "") + n2(p) + "%"
-        body.extend(["", L("## Sectors", "## क्षेत्रगत अवस्था"), "", f"- {L('Strongest', 'सबैभन्दा बलियो')}: {sector_name(bn, lang)} ({sg(bp)})", f"- {L('Weakest', 'सबैभन्दा कमजोर')}: {sector_name(wn, lang)} ({sg(wp)})"])
-    body.extend(["", L("This summary is written automatically from NEPSE data. It is for information and is not investment advice.", "यो सारांश नेप्सेको तथ्याङ्कबाट स्वचालित रूपमा तयार गरिएको हो। यो जानकारीका लागि हो, लगानी सल्लाह होइन।")])
+        body += ["", L("## Most traded by turnover", "## सबैभन्दा धेरै कारोबार हुने"), ""] + table([L("Stock", "कम्पनी"), L("Turnover", "कारोबार रकम")], [(s_, money(t_, lang)) for s_, t_ in fa["busiest"]])
+
+    # ---- brokers
+    if fa.get("brokers"):
+        def bro(items):
+            return [(f"{no} {nm}".strip() if not ne else f"{ne_digits(no)} {nm}".strip(), money(a, lang)) for no, nm, a in items]
+
+        body += ["", L("## Broker activity", "## ब्रोकर गतिविधि"), ""]
+        body += table([L("Top net buyers", "सबैभन्दा धेरै खरिद गर्ने ब्रोकर"), L("Net bought", "खुद खरिद")], bro(fa["brokers"]["buyers"]))
+        body += [""] + table([L("Top net sellers", "सबैभन्दा धेरै बिक्री गर्ने ब्रोकर"), L("Net sold", "खुद बिक्री")], bro(fa["brokers"]["sellers"]))
+
+    # ---- disclosures
+    if fa.get("disclosures"):
+        body += ["", L("## Disclosures today", "## आजका सूचना"), ""]
+        for sym, cat, divs in fa["disclosures"]:
+            label = ANN_LABEL[cat][1 if ne else 0]
+            extra = ""
+            if divs:
+                names = {"Cash": ("Cash", "नगद"), "Bonus": ("Bonus", "बोनस"), "Right": ("Right", "हकप्रद")}
+                extra = ": " + ", ".join(f"{names[k][1 if ne else 0]} {(ne_digits if ne else str)('%g' % float(v))}%" for k, v in divs)
+            body.append(f"- [{sym}](/announcements?symbol={sym}) - {label}{extra}")
+        more = fa.get("disclosure_count", 0) - len(fa["disclosures"])
+        tail = L("See all announcements", "सबै सूचना हेर्नुहोस्")
+        body += ["", f"[{tail}](/announcements)" + (f" ({whole(more, lang)} {L('more today', 'थप आज')})" if more > 0 else "")]
+
+    body += ["", L("This summary is written automatically from NEPSE data. It is for information and is not investment advice.", "यो सारांश नेप्सेको तथ्याङ्कबाट स्वचालित रूपमा तयार गरिएको हो। यो जानकारीका लागि हो, लगानी सल्लाह होइन।")]
     return title, summary, "\n".join(body)
 
 
