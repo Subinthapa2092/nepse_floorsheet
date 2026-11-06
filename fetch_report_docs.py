@@ -18,6 +18,13 @@ from datetime import date, datetime, timedelta, timezone
 
 import httpx
 
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()  # reads the .env file next to this script, if there is one (on GitHub the keys come from secrets)
+except ImportError:
+    pass
+
 KEEP_DAYS = 120
 MAX_BYTES = 5 * 1024 * 1024
 DEFAULT_LIMIT = 40
@@ -45,6 +52,8 @@ def main():
         limit = int(sys.argv[sys.argv.index("--limit") + 1])
 
     from supabase import create_client
+    if not os.environ.get("SUPABASE_URL") or not os.environ.get("SUPABASE_SERVICE_ROLE_KEY"):
+        sys.exit("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are missing. Put them in the .env file in this folder (same as your other scripts), or just run the workflow on GitHub.")
     sb = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"])
     cutoff = date.today() - timedelta(days=KEEP_DAYS)
 
@@ -62,7 +71,7 @@ def main():
             print("  ", d, sym, aid)
         return
 
-    ok = missing = 0
+    ok = missing = total = 0
     with httpx.Client(headers={"User-Agent": UA}, timeout=30, follow_redirects=True) as http:
         for aid, sym, d in todo[:limit]:
             path = None
@@ -77,6 +86,7 @@ def main():
                         name = f"reports/{aid}.pdf"
                         sb.storage.from_(BUCKET).upload(path=name, file=f.content, file_options={"content-type": "application/pdf", "upsert": "true"})
                         path = name
+                        total += len(f.content)
             except Exception as e:  # tried again on the next run, up to 3 times
                 print(f"  {sym} {aid}: {type(e).__name__}")
             prev = (have.get(aid) or {}).get("attempts", 0)
@@ -86,7 +96,7 @@ def main():
                 on_conflict="announcement_id").execute()
             ok += 1 if path else 0
             missing += 0 if path else 1
-    print(f"Saved {ok} report files, {missing} without a file this time.")
+    print(f"Saved {ok} report files ({total / 1048576:.1f} MB, about {total / max(ok, 1) / 1048576:.2f} MB each), {missing} without a file this time.")
 
     old = sb.table("report_docs").select("announcement_id,doc_path").lt("report_date", cutoff.isoformat()).limit(300).execute().data or []
     if old:
