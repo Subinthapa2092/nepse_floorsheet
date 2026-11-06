@@ -51,3 +51,4 @@ keep_list.txt
 repo_tidy_report.py
 probe_announcements.py
 probe_announcements2.py
+/scripts/
