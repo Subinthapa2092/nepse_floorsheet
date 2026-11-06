@@ -23,7 +23,7 @@ except ImportError:
     pass
 
 SITE = os.environ.get("SITE_URL", "https://arthotix.com").rstrip("/")
-COVER_VERSION = "3"  # change this number to make every browser and WhatsApp fetch a redesigned thumbnail again
+COVER_VERSION = "4"  # change this number to make every browser and WhatsApp fetch a redesigned thumbnail again
 MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
 BS_NE = ["बैशाख", "जेठ", "असार", "श्रावण", "भदौ", "आश्विन", "कार्तिक", "मंसिर", "पौष", "माघ", "फाल्गुन", "चैत्र"]
 NOT_SECTORS = {"nepse index", "sensitive index", "float index", "sensitive float index"}
@@ -176,7 +176,7 @@ def gather(sb, want=None):
         return None, "market was closed (index row repeats the day before)"
     d = str(cur["business_date"])
     value, pv = f(cur["index_value"]), f(prev["index_value"])
-    facts = {"date": d, "value": value, "pts": value - pv, "pct": (value - pv) / pv * 100 if pv else 0.0, "movers": None}
+    facts = {"date": d, "value": value, "pts": value - pv, "pct": (f(cur["percent_change"]) if cur.get("percent_change") is not None else ((value - pv) / pv * 100 if pv else 0.0)), "movers": None}
 
     # the last five sessions, for context
     week = [f(r["index_value"]) for r in rows[pos:pos + 5]]
