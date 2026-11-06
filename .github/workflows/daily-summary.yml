@@ -1,0 +1,26 @@
+name: Daily market summary
+
+# Writes the day's market summary story for the News page after NEPSE closes (Mon-Fri). It runs twice; the second run
+# does nothing if the first one already saved the story. Holidays are skipped automatically.
+on:
+  schedule:
+    - cron: "45 10 * * 1-5"
+    - cron: "15 12 * * 1-5"
+  workflow_dispatch: {}
+
+jobs:
+  summary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - name: Write the summary
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUMMARY_AUTOPUBLISH: ${{ vars.SUMMARY_AUTOPUBLISH }}
+        run: python daily_summary.py
