@@ -91,20 +91,42 @@ def sync_prices(S, D):
     if not need <= cols:
         sys.exit(f'The target table lacks {sorted(need - cols)}. Stop here and tell Claude this list.')
 
+    # Look at the source table first, so a different column name is found (and shown) instead of failing.
+    pr = requests.get(f"{S[0]}/rest/v1/daily_prices", params={'select': '*', 'limit': 1}, headers=hdr(S[1]), timeout=60)
+    if pr.status_code != 200:
+        sys.exit(f'Cannot read daily_prices in the source project: {pr.status_code} {pr.text[:300]}')
+    probe = pr.json()
+    print(f"    source project starts with: {S[0].split('//')[-1][:6]} | target project starts with: {D[0].split('//')[-1][:6]}")
+    if not probe:
+        sys.exit('daily_prices is empty in the source project. Check that SRC_URL / SRC_KEY are the nepse-analytics project.')
+    scols = set(probe[0].keys())
+    print(f'    columns in the source table: {sorted(scols)}')
+
+    def pick(*names):
+        return next((n for n in names if n in scols), None)
+
+    c = {'date': pick('business_date', 'trading_date', 'trade_date', 'date'), 'symbol': pick('symbol'),
+         'open': pick('open_price', 'open', 'open_raw'), 'high': pick('high_price', 'high', 'high_raw'),
+         'low': pick('low_price', 'low', 'low_raw'), 'close': pick('close_price', 'ltp', 'close', 'close_raw'),
+         'vol': pick('total_volume', 'volume', 'qty'), 'turn': pick('total_turnover', 'turnover', 'amount')}
+    lacking = [k for k in ('date', 'symbol', 'open', 'high', 'low', 'close', 'vol') if not c[k]]
+    if lacking:
+        sys.exit(f'The source daily_prices has no column for {lacking}. Send Claude the "columns in the source table" line above.')
+    print(f'    using source columns: {c}')
+    cols_sel = ','.join(sorted({v for v in c.values() if v}))
     src = get_all(S[0], S[1], 'daily_prices',
-                  {'select': 'symbol,business_date,open_price,high_price,low_price,close_price,total_volume,total_turnover',
-                   'business_date': f'gte.{start}', 'order': 'business_date.asc,symbol.asc'})
+                  {'select': cols_sel, c['date']: f'gte.{start}', 'order': f"{c['date']}.asc,{c['symbol']}.asc"})
     rows, skipped = [], 0
     for s in src:
-        close = num(s['close_price'])
+        close = num(s[c['close']])
         if close is None:  # the day is not finished/complete for this stock yet; the next run picks it up
             skipped += 1
             continue
-        row = {'fetched_at': s['business_date'], 'symbol': s['symbol'], 'open': num(s['open_price']), 'high': num(s['high_price']),
-               'low': num(s['low_price']), 'ltp': close, 'qty': num(s['total_volume'])}
+        row = {'fetched_at': str(s[c['date']])[:10], 'symbol': s[c['symbol']], 'open': num(s[c['open']]), 'high': num(s[c['high']]),
+               'low': num(s[c['low']]), 'ltp': close, 'qty': num(s[c['vol']])}
         for name in ('turnover', 'total_turnover', 'amount', 'amt'):
-            if name in cols:
-                row[name] = num(s['total_turnover'])
+            if name in cols and c['turn']:
+                row[name] = num(s[c['turn']])
         rows.append(row)
     days = sorted({r['fetched_at'] for r in rows})
     print(f'    source rows: {len(src)} · usable: {len(rows)} · skipped (no close yet): {skipped}')
@@ -140,6 +162,8 @@ if __name__ == '__main__':
     load_env()
     S = (os.environ['SRC_URL'].rstrip('/'), os.environ['SRC_KEY'])
     D = (os.environ['DST_URL'].rstrip('/'), os.environ['DST_KEY'])
+    if S[0] == D[0]:
+        sys.exit('SRC_URL and DST_URL are the same project. SRC must be nepse-analytics and DST the main Arthotix project.')
     print('MODE:', 'WRITE' if GO else 'DRY RUN (add --go to write)')
     sync_prices(S, D)
     sync_fund(S, D)
