@@ -1,0 +1,23 @@
+name: Fetch report documents
+
+# Once a day, plus a button for running it by hand. Copies the PDFs of recent quarterly reports into our own storage.
+on:
+  schedule:
+    - cron: "40 4 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  report-docs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - name: Save report documents
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: python fetch_report_docs.py --limit 60
