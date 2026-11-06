@@ -310,19 +310,19 @@ def build(fa, lang):
     p1, p2 = [], []
     if ne:
         if "advanced" in fa:
-            p1.append(f"कारोबार भएका {whole(traded, lang)} कम्पनीमध्ये {whole(fa['advanced'], lang)} को भाउ बढ्यो, {whole(fa['declined'], lang)} को घट्यो र {whole(fa['unchanged'], lang)} अपरिवर्तित रहे।")
+            p1.append(f"कारोबार भएका {whole(traded, lang)} कम्पनीमध्ये {whole(fa['advanced'], lang)} कम्पनीको भाउ बढ्यो, {whole(fa['declined'], lang)} कम्पनीको घट्यो र {whole(fa['unchanged'], lang)} कम्पनी अपरिवर्तित रहे।")
         bits = []
         if pc is not None:
             bits.append(f"अघिल्लो कारोबार दिनभन्दा {ne_digits(f'{abs(pc):.1f}')}% {'बढी' if pc > 0 else 'कम'}")
         if avg is not None:
-            bits.append(f"पछिल्ला पाँच कारोबार दिनको औसतभन्दा {ne_digits(f'{abs(avg):.1f}')}% {'माथि' if avg > 0 else 'तल'}")
+            bits.append(f"पछिल्ला पाँच कारोबार दिनको औसतभन्दा {ne_digits(f'{abs(avg):.1f}')}% {'बढी' if avg > 0 else 'कम'}")
         if bits:
             p1.append("कारोबार रकम " + " र ".join(bits) + " रह्यो।")
         if fa.get("sectors"):
             (bn, bp), (wn, wp) = fa["sectors"][0], fa["sectors"][-1]
-            p2.append(f"क्षेत्रगत रूपमा {sector_name(bn, lang)} ({sg(bp)}) सबैभन्दा बलियो र {sector_name(wn, lang)} ({sg(wp)}) सबैभन्दा कमजोर रह्यो।")
+            p2.append(f"क्षेत्रगत रूपमा {sector_name(bn, lang)} क्षेत्र ({sg(bp)}) सबैभन्दा बलियो र {sector_name(wn, lang)} क्षेत्र ({sg(wp)}) सबैभन्दा कमजोर रह्यो।")
         if "week_pct" in fa:
-            p2.append(f"पछिल्ला पाँच कारोबार दिनमा सूचकाङ्क {n2(fa['week_pct'])}% {'ले बढेको' if fa['week_pct'] >= 0 else 'ले घटेको'} छ।")
+            p2.append(f"पछिल्ला पाँच कारोबार दिनमा सूचकाङ्क {n2(fa['week_pct'])}% {'बढेको' if fa['week_pct'] >= 0 else 'घटेको'} छ।")
     else:
         if "advanced" in fa:
             p1.append(f"Of the {whole(traded, lang)} stocks that traded, {whole(fa['advanced'], lang)} advanced, {whole(fa['declined'], lang)} declined and {whole(fa['unchanged'], lang)} {'was' if fa['unchanged'] == 1 else 'were'} unchanged.")
@@ -371,7 +371,7 @@ def build(fa, lang):
     body += movers("## Top gainers", "## सबैभन्दा धेरै बढ्ने", fa.get("gainers"))
     body += movers("## Top losers", "## सबैभन्दा धेरै घट्ने", fa.get("losers"))
     if fa.get("busiest"):
-        body += ["", L("## Most traded by turnover", "## सबैभन्दा धेरै कारोबार हुने"), ""] + table([L("Stock", "कम्पनी"), L("Turnover", "कारोबार रकम")], [(s_, money(t_, lang)) for s_, t_ in fa["busiest"]])
+        body += ["", L("## Most traded by turnover", "## सबैभन्दा धेरै कारोबार भएका"), ""] + table([L("Stock", "कम्पनी"), L("Turnover", "कारोबार रकम")], [(s_, money(t_, lang)) for s_, t_ in fa["busiest"]])
 
     # ---- brokers
     if fa.get("brokers"):
@@ -394,9 +394,9 @@ def build(fa, lang):
             body.append(f"- [{sym}](/announcements?symbol={sym}) - {label}{extra}")
         more = fa.get("disclosure_count", 0) - len(fa["disclosures"])
         tail = L("See all announcements", "सबै सूचना हेर्नुहोस्")
-        body += ["", f"[{tail}](/announcements)" + (f" ({whole(more, lang)} {L('more today', 'थप आज')})" if more > 0 else "")]
+        body += ["", f"[{tail}](/announcements)" + ((f" (आज {whole(more, lang)} थप)" if ne else f" ({whole(more, lang)} more today)") if more > 0 else "")]
 
-    body += ["", "::: note", L("Written automatically from NEPSE data.", "नेप्सेको तथ्याङ्कबाट स्वचालित रूपमा तयार गरिएको।"), ":::"]
+    body += ["", "::: note", L("Written automatically from NEPSE data.", "यो सारांश नेप्सेको तथ्याङ्कबाट स्वचालित रूपमा तयार गरिएको हो।"), ":::"]
     return title, summary, "\n".join(body)
 
 
