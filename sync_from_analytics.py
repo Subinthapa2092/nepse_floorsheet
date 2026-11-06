@@ -69,7 +69,10 @@ def insert(url, key, table, rows, upsert_on=None, chunk=500):
 
 def num(v):
     try:
-        return None if v in (None, '') else float(v)
+        if v in (None, ''):
+            return None
+        f = float(v)
+        return int(f) if f.is_integer() else f  # whole numbers go as 3460, not 3460.0 (a whole-number column refuses "3460.0")
     except ValueError:
         return None
 
@@ -155,10 +158,22 @@ def sync_prices(S, D):
     if not rows:
         print('    nothing to write')
         return
+    # Keep a copy of the days about to be replaced. If writing the new rows fails, the copy is put back, so a failed run never leaves a gap.
+    backup = get_all(D[0], D[1], 'nepse_analytics_prices', {'select': '*', 'fetched_at': f"in.({','.join(keep_days)})"})
     d = requests.delete(f"{D[0]}/rest/v1/nepse_analytics_prices", params={'fetched_at': f"in.({','.join(keep_days)})"}, headers=hdr(D[1], {'Prefer': 'return=minimal'}), timeout=120)
     if d.status_code not in (200, 204):
         sys.exit(f'Clearing the overlap days failed: {d.status_code} {d.text[:300]}')
-    insert(D[0], D[1], 'nepse_analytics_prices', rows)
+    try:
+        insert(D[0], D[1], 'nepse_analytics_prices', rows)
+    except SystemExit as e:
+        print(f'    writing failed, putting back the {len(backup)} rows that were replaced ...')
+        try:
+            d2 = requests.delete(f"{D[0]}/rest/v1/nepse_analytics_prices", params={'fetched_at': f"in.({','.join(keep_days)})"}, headers=hdr(D[1], {'Prefer': 'return=minimal'}), timeout=120)
+            insert(D[0], D[1], 'nepse_analytics_prices', backup)
+            print('    old rows are back')
+        except SystemExit:
+            print('    COULD NOT put the old rows back. Run the script again; it rewrites these days from the source.')
+        raise e
     print(f'    wrote {len(rows)} rows')
 
 
