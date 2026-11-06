@@ -105,15 +105,16 @@ def sync_prices(S, D):
     def pick(*names):
         return next((n for n in names if n in scols), None)
 
-    c = {'date': pick('business_date', 'trading_date', 'trade_date', 'date'), 'symbol': pick('symbol'),
+    c = {'date': pick('business_date', 'trading_date', 'trade_date', 'date', 'fetched_at'), 'symbol': pick('symbol'),
          'open': pick('open_price', 'open', 'open_raw'), 'high': pick('high_price', 'high', 'high_raw'),
          'low': pick('low_price', 'low', 'low_raw'), 'close': pick('close_price', 'ltp', 'close', 'close_raw'),
          'vol': pick('total_volume', 'volume', 'qty'), 'turn': pick('total_turnover', 'turnover', 'amount')}
+    extra = [k for k in ('pct_change', 'trend') if k in scols and k in cols]  # copied too when both tables have them
     lacking = [k for k in ('date', 'symbol', 'open', 'high', 'low', 'close', 'vol') if not c[k]]
     if lacking:
         sys.exit(f'The source daily_prices has no column for {lacking}. Send Claude the "columns in the source table" line above.')
     print(f'    using source columns: {c}')
-    cols_sel = ','.join(sorted({v for v in c.values() if v}))
+    cols_sel = ','.join(sorted({v for v in c.values() if v} | set(extra)))
     src = get_all(S[0], S[1], 'daily_prices',
                   {'select': cols_sel, c['date']: f'gte.{start}', 'order': f"{c['date']}.asc,{c['symbol']}.asc"})
     rows, skipped = [], 0
@@ -127,7 +128,11 @@ def sync_prices(S, D):
         for name in ('turnover', 'total_turnover', 'amount', 'amt'):
             if name in cols and c['turn']:
                 row[name] = num(s[c['turn']])
+        for k in extra:
+            row[k] = s.get(k)
         rows.append(row)
+    # One row per stock per day (the latest one wins if the source keeps several).
+    rows = list({(r['fetched_at'], r['symbol']): r for r in rows}.values())
     days = sorted({r['fetched_at'] for r in rows})
     print(f'    source rows: {len(src)} · usable: {len(rows)} · skipped (no close yet): {skipped}')
     print(f'    days to write: {days[0] if days else "-"} .. {days[-1] if days else "-"} ({len(days)} days)')
@@ -136,7 +141,21 @@ def sync_prices(S, D):
     if not GO:
         print('    (dry run: nothing written)')
         return
-    d = requests.delete(f"{D[0]}/rest/v1/nepse_analytics_prices", params={'fetched_at': f'gte.{start}'}, headers=hdr(D[1], {'Prefer': 'return=minimal'}), timeout=120)
+    # A day is replaced only when the source has nearly as many stocks as the target already holds for that day,
+    # so a half-filled day in the source never overwrites a complete one.
+    keep_days = []
+    for day in days:
+        have = [r for r in rows if r['fetched_at'] == day]
+        cur = get_all(D[0], D[1], 'nepse_analytics_prices', {'select': 'symbol', 'fetched_at': f'eq.{day}'})
+        if cur and len(have) < 0.9 * len(cur):
+            print(f'    {day}: source has {len(have)} stocks, target has {len(cur)}; left unchanged')
+            continue
+        keep_days.append(day)
+    rows = [r for r in rows if r['fetched_at'] in keep_days]
+    if not rows:
+        print('    nothing to write')
+        return
+    d = requests.delete(f"{D[0]}/rest/v1/nepse_analytics_prices", params={'fetched_at': f"in.({','.join(keep_days)})"}, headers=hdr(D[1], {'Prefer': 'return=minimal'}), timeout=120)
     if d.status_code not in (200, 204):
         sys.exit(f'Clearing the overlap days failed: {d.status_code} {d.text[:300]}')
     insert(D[0], D[1], 'nepse_analytics_prices', rows)
