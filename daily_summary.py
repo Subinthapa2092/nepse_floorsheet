@@ -23,6 +23,7 @@ except ImportError:
     pass
 
 SITE = os.environ.get("SITE_URL", "https://arthotix.com").rstrip("/")
+COVER_VERSION = "3"  # change this number to make every browser and WhatsApp fetch a redesigned thumbnail again
 MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
 BS_NE = ["बैशाख", "जेठ", "असार", "श्रावण", "भदौ", "आश्विन", "कार्तिक", "मंसिर", "पौष", "माघ", "फाल्गुन", "चैत्र"]
 NOT_SECTORS = {"nepse index", "sensitive index", "float index", "sensitive float index"}
@@ -411,9 +412,9 @@ def save(sb, fa, publish, force):
     row = {"title": t, "summary": s[:400], "body": b, "title_ne": tn, "summary_ne": sn[:400], "body_ne": bn, "ne_status": "reviewed"}
     now = datetime.now(timezone.utc).isoformat()
     if have:
-        sb.table("articles").update({**row, "updated_at": now}).eq("id", have[0]["id"]).execute()
+        sb.table("articles").update({**row, "cover_url": f"{SITE}/news/cover/{fa['date']}?v={COVER_VERSION}", "updated_at": now}).eq("id", have[0]["id"]).execute()
         return f"{slug}: text rewritten ({have[0]['status']})"
-    row.update({"slug": slug, "category": "market", "author": "Arthotix", "cover_url": f"{SITE}/news/cover/{fa['date']}",
+    row.update({"slug": slug, "category": "market", "author": "Arthotix", "cover_url": f"{SITE}/news/cover/{fa['date']}?v={COVER_VERSION}",
                 "status": "published" if publish else "draft", "published_at": now if publish else None, "updated_at": now})
     sb.table("articles").insert(row).execute()
     return f"{slug}: saved as {'PUBLISHED' if publish else 'a draft'}"
