@@ -1,0 +1,31 @@
+name: Bulk trades summary
+
+# Each trading evening: reads the newest day in the raw floorsheet and stores its trade-size counts and its trades of
+# 5,000+ shares in two small tables (sql/bulk_trades.sql), then drops days older than a year. Safe to run twice.
+# Times are UTC: 15:30 = 21:15 Nepal time. The second run is a retry the next morning. You can also run it by hand.
+on:
+  schedule:
+    - cron: '30 15 * * 0-4'
+    - cron: '30 22 * * 0-4'
+  workflow_dispatch: {}
+
+concurrency:
+  group: bulk-summarize
+  cancel-in-progress: false
+
+jobs:
+  summarize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Summarise the newest trading day
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          curl -sS --fail-with-body -X POST "$SUPABASE_URL/rest/v1/rpc/summarize_bulk_day" \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{}'
+          echo
