@@ -19,9 +19,18 @@ def main():
         ctx = b.new_context(user_agent="Arthotix/1.0 (quarterly figures probe)", viewport={"width": 1400, "height": 1000})
         page = ctx.new_page()
         page.on("response", lambda r: seen.append((r.request.method, r.status, r.url, r.headers.get("content-type", ""), r.request.post_data)))
-        page.goto(URL, wait_until="networkidle", timeout=60000)
+        # ads and trackers never go quiet, so do not wait for "network idle"; skip them and read once the page is there
+        page.route("**/*", lambda route: route.abort() if re.search(r"google|doubleclick|facebook|adsbygoogle|analytics|clarity|hotjar|\.(png|jpe?g|gif|svg|woff2?)(\?|$)", route.request.url, re.I) else route.continue_())
+        try:
+            resp = page.goto(URL, wait_until="domcontentloaded", timeout=60000)
+            print("page status:", resp.status if resp else None)
+        except Exception as e:
+            print("page.goto problem:", str(e)[:300])
+        page.wait_for_timeout(5000)
         before = len(seen)
         print("page title:", page.title())
+        html = page.content()
+        print("page length:", len(html), "| looks like a block page:", bool(re.search(r"cloudflare|just a moment|access denied|attention required|captcha", html, re.I)))
 
         tabs = page.locator("a[data-toggle='tab'], ul.nav-tabs a, .nav-tabs a, a[href^='#']").all()
         print("\n== tab-like links ==")
