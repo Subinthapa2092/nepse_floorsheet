@@ -14,6 +14,14 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: What did GitHub check out?
+        run: |
+          echo "repo: $GITHUB_REPOSITORY  ref: $GITHUB_REF  sha: $GITHUB_SHA"
+          git log -1 --oneline
+          ls -la
+          git ls-files | grep -i probe || echo "no probe file in this checkout"
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
