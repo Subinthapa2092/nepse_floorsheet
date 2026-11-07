@@ -36,3 +36,11 @@ jobs:
           if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then ARGS="$ARGS --dry-run"; fi
           if [ -n "${{ github.event.inputs.symbol }}" ]; then ARGS="$ARGS --symbol ${{ github.event.inputs.symbol }}"; fi
           python read_reports.py $ARGS
+      - name: Keep the pictures that were hard to read
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-pictures
+          path: debug_pics
+          if-no-files-found: ignore
+          retention-days: 7

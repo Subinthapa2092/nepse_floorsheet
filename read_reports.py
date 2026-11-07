@@ -96,21 +96,33 @@ def run(sb, dry, redo, limit, only):
         for r in sb.table("company_financials").select("source").limit(20000).execute().data or []:
             if r.get("source"):
                 done.add(r["source"])
-    todo, skipped_pdf = [], 0
+    todo, why = [], {"no file saved": 0, "no matching report row": 0, "PDF (not read yet)": 0, "other file type": 0, "already read": 0}
     for d in docs:
         path = d.get("doc_path") or ""
-        ext = path.rsplit(".", 1)[-1].lower()
+        ext = path.rsplit(".", 1)[-1].lower() if "." in path else ""
         aid = d["announcement_id"]
         rep = reps.get(aid)
-        if not rep or (only and rep["symbol"] != only):
+        if not path:
+            why["no file saved"] += 1
+            continue
+        if not rep:
+            why["no matching report row"] += 1
+            continue
+        if only and rep["symbol"] != only:
+            continue
+        if ext == "pdf":
+            why["PDF (not read yet)"] += 1
             continue
         if ext not in IMAGE_EXT:
-            skipped_pdf += 1
+            why["other file type"] += 1
             continue
         if aid in done:
+            why["already read"] += 1
             continue
         todo.append((aid, rep["symbol"], path))
-    print(f"{len(docs)} saved reports, {skipped_pdf} are PDFs (not read yet), {len(todo)} pictures to read, reading {min(limit, len(todo))}.\n")
+    print(f"{len(docs)} rows in report_docs. Left out: " + ", ".join(f"{k} {v}" for k, v in why.items() if v) + f". {len(todo)} pictures to read, reading {min(limit, len(todo))}.\n")
+    keep = Path("debug_pics")
+    kept = 0
 
     summary = {"ok": 0, "mismatch": 0, "no_check": 0, "no_period": 0, "error": 0}
     for aid, sym, path in todo[:limit]:
@@ -128,6 +140,12 @@ def run(sb, dry, redo, limit, only):
         chk = rr.checks(res)
         eps_chk = next((ok for name, ok, _ in chk if name.startswith("EPS")), None)
         n = len(res["found"])
+        weak = (not period) or n < 6 or eps_chk is None
+        if weak and kept < 25:
+            keep.mkdir(exist_ok=True)
+            (keep / f"{sym}_{aid}.{path.rsplit('.', 1)[-1].lower()}").write_bytes(blob)
+            (keep / f"{sym}_{aid}.txt").write_text("HEADING\n" + (res.get("heading") or "") + "\n\nFOUND\n" + "\n".join(f"{k}: {v['value']}  <- {v['label']!r} {v['numbers']}" for k, v in res["found"].items()) + "\n\nTEXT\n" + (res.get("text") or ""), encoding="utf-8")
+            kept += 1
         if not period:
             summary["no_period"] += 1
             print(f"{sym:8s} {aid}: {n} figures but the quarter could not be read from the heading, skipped")
@@ -152,6 +170,8 @@ def run(sb, dry, redo, limit, only):
         if rows:
             sb.table("company_financials").upsert(rows, on_conflict="symbol,fiscal_year,period,metric").execute()
     total = sum(summary.values())
+    if kept:
+        print(f"\n{kept} pictures that were hard to read were saved for me: on the run page, open Artifacts at the bottom and download debug-pictures.")
     print(f"\nRead {total}: EPS check passed {summary['ok']}, mismatch {summary['mismatch']}, no check possible {summary['no_check']}, quarter unreadable {summary['no_period']}, errors {summary['error']}")
     return 0
 
