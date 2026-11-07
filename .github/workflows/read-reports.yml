@@ -1,0 +1,38 @@
+name: Read quarterly reports
+
+# Reads the saved quarterly report pictures and puts the figures into company_financials as "review".
+# Nothing is published by this: you approve the figures first. Run by hand (Run workflow). Start with "dry run" ticked.
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (read and show a summary, save nothing)"
+        type: boolean
+        default: true
+      limit:
+        description: "How many reports to read"
+        default: "30"
+      symbol:
+        description: "Only this company (optional), e.g. NABIL"
+        default: ""
+
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: sudo apt-get update && sudo apt-get install -y tesseract-ocr
+      - run: pip install pillow numpy httpx supabase python-dotenv
+      - name: Read the reports
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          ARGS="--limit ${{ github.event.inputs.limit }}"
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then ARGS="$ARGS --dry-run"; fi
+          if [ -n "${{ github.event.inputs.symbol }}" ]; then ARGS="$ARGS --symbol ${{ github.event.inputs.symbol }}"; fi
+          python read_reports.py $ARGS
