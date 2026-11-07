@@ -1,0 +1,22 @@
+name: Probe quarterly figures
+
+# One-time look at where Merolagani's Quarterly Report tab gets its numbers. Reads one page, saves nothing. Run by hand.
+on:
+  workflow_dispatch:
+    inputs:
+      symbol:
+        description: "Company symbol to look at"
+        default: "NABIL"
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install playwright && playwright install --with-deps chromium
+      - name: Look at the page
+        run: python probe_quarterly.py "${{ github.event.inputs.symbol }}"
