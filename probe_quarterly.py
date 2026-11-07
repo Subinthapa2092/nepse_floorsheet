@@ -1,7 +1,7 @@
 """
-PROBE (read-only, saves nothing): where do the numbers in Merolagani's "Quarterly Report" tab come from?
-It opens ONE company page (NABIL) once, clicks the tab, and prints what the page asked for and what the table holds.
-Run it from GitHub: Actions > Probe quarterly figures > Run workflow. Then copy the whole log into the chat.
+PROBE (read-only, saves nothing): what is inside Merolagani's "Quarterly Report" tab?
+Opens ONE company page once, opens the tab, and prints the table text, the dropdowns, the paging links and the requests made.
+Run it from GitHub: Actions > Probe quarterly figures > Run workflow. Then copy the "Look at the page" log into the chat.
 """
 import re
 import sys
@@ -10,6 +10,13 @@ from playwright.sync_api import sync_playwright
 
 SYMBOL = sys.argv[1] if len(sys.argv) > 1 else "NABIL"
 URL = f"https://merolagani.com/CompanyDetail.aspx?symbol={SYMBOL}"
+TAB_ID = "ctl00_ContentPlaceHolder1_CompanyDetail1_lnkQuaterlyTab"
+BLOCK = r"google|doubleclick|facebook|adsbygoogle|analytics|clarity|hotjar|\.(png|jpe?g|gif|svg|woff2?)(\?|$)"
+
+
+def lines_of(text, n):
+    rows = [re.sub(r"\s+", " ", r).strip() for r in text.split("\n") if r.strip()]
+    return rows[:n], len(rows)
 
 
 def main():
@@ -18,65 +25,45 @@ def main():
         b = p.chromium.launch()
         ctx = b.new_context(user_agent="Arthotix/1.0 (quarterly figures probe)", viewport={"width": 1400, "height": 1000})
         page = ctx.new_page()
+        page.route("**/*", lambda route: route.abort() if re.search(BLOCK, route.request.url, re.I) else route.continue_())
         page.on("response", lambda r: seen.append((r.request.method, r.status, r.url, r.headers.get("content-type", ""), r.request.post_data)))
-        # ads and trackers never go quiet, so do not wait for "network idle"; skip them and read once the page is there
-        page.route("**/*", lambda route: route.abort() if re.search(r"google|doubleclick|facebook|adsbygoogle|analytics|clarity|hotjar|\.(png|jpe?g|gif|svg|woff2?)(\?|$)", route.request.url, re.I) else route.continue_())
-        try:
-            resp = page.goto(URL, wait_until="domcontentloaded", timeout=60000)
-            print("page status:", resp.status if resp else None)
-        except Exception as e:
-            print("page.goto problem:", str(e)[:300])
-        page.wait_for_timeout(5000)
+        resp = page.goto(URL, wait_until="domcontentloaded", timeout=60000)
+        print("page status:", resp.status if resp else None)
+        page.wait_for_timeout(4000)
         before = len(seen)
-        print("page title:", page.title())
-        html = page.content()
-        print("page length:", len(html), "| looks like a block page:", bool(re.search(r"cloudflare|just a moment|access denied|attention required|captcha", html, re.I)))
 
-        tabs = page.locator("a[data-toggle='tab'], ul.nav-tabs a, .nav-tabs a, a[href^='#']").all()
-        print("\n== tab-like links ==")
-        for t in tabs[:40]:
-            try:
-                print(" -", (t.inner_text() or "").strip()[:40], "|", t.get_attribute("href"), "|", t.get_attribute("id"))
-            except Exception:
-                pass
-
-        clicked = False
-        for sel in ("text=Quarterly Report", "a:has-text('Quarterly')"):
-            try:
-                page.locator(sel).first.click(timeout=8000)
-                clicked = True
-                break
-            except Exception:
-                continue
-        print("\nclicked the Quarterly tab:", clicked)
-        page.wait_for_timeout(6000)
+        info = page.evaluate("""(id) => {
+            const a = document.getElementById(id);
+            if (!a) return {found: false};
+            const out = {found: true, href: a.getAttribute('href'), onclick: a.getAttribute('onclick'), text: a.innerText};
+            a.click();
+            return out;
+        }""", TAB_ID)
+        print("tab link:", info)
+        page.wait_for_timeout(8000)
 
         print("\n== requests made AFTER the click (method, status, url, type, posted data) ==")
         for m, s, u, ct, pd in seen[before:]:
-            if re.search(r"\.(png|jpe?g|gif|svg|css|woff2?|ico)(\?|$)|google|facebook|doubleclick|analytics|adsbygoogle", u, re.I):
-                continue
-            print(f" {m} {s} {u[:200]} | {ct[:40]} | {(pd or '')[:200]}")
+            print(f" {m} {s} {u[:220]} | {ct[:40]} | {(pd or '')[:300]}")
 
-        print("\n== text of tables that mention profit / EPS / net worth ==")
-        n = 0
-        for tb in page.locator("table").all():
-            try:
-                txt = tb.inner_text()
-            except Exception:
-                continue
-            if re.search(r"net profit|eps|net worth|paid up", txt, re.I):
-                n += 1
-                rows = [re.sub(r"\s+", " ", r).strip() for r in txt.split("\n") if r.strip()]
-                print(f"--- table {n}: {len(rows)} lines (first 45) ---")
-                for r in rows[:45]:
-                    print("  ", r[:160])
-                if n >= 3:
-                    break
-        if n == 0:
-            print("(no table with those words found)")
-            body = re.sub(r"\s+", " ", page.inner_text("body"))
-            i = body.lower().find("quarter")
-            print("text near 'quarter':", body[max(i - 100, 0): i + 600])
+        panel = page.locator("#divQuaterly")
+        print("\npanel found:", panel.count(), "| visible:", panel.first.is_visible() if panel.count() else None)
+        if panel.count():
+            txt = panel.first.inner_text()
+            rows, total = lines_of(txt, 120)
+            print(f"\n== text inside #divQuaterly: {total} lines (first 120) ==")
+            for r in rows:
+                print("  ", r[:180])
+            print("\n== dropdowns inside the panel ==")
+            for sel in panel.first.locator("select").all():
+                opts = [o.inner_text().strip() for o in sel.locator("option").all()]
+                print(" select", sel.get_attribute("id"), "->", opts[:30])
+            print("\n== paging / links inside the panel ==")
+            for a in panel.first.locator("a").all()[:40]:
+                print(" ", (a.inner_text() or "").strip()[:30], "|", a.get_attribute("href"), "|", a.get_attribute("id"))
+            html = panel.first.inner_html()
+            print("\npanel html length:", len(html))
+            print("first 1500 chars of panel html:\n", re.sub(r"\s+", " ", html)[:1500])
         b.close()
 
 
