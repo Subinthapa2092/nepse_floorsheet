@@ -1,0 +1,20 @@
+name: Probe report files
+
+# One-time look at how readable the quarterly report files are (PDF text or picture OCR). Reads 9 files, saves nothing. Run by hand.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: sudo apt-get update && sudo apt-get install -y tesseract-ocr poppler-utils && pip install httpx pillow
+      - name: Read the files
+        run: python probe_reportfiles.py
