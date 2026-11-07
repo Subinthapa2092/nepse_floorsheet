@@ -1,0 +1,27 @@
+name: Announcement stories
+
+# Turns new dividend, bonus, right-share and IPO announcements into News drafts (English + Nepali).
+# Runs a few times on trading days after the announcements are fetched. Each announcement gets one story, ever.
+on:
+  schedule:
+    - cron: "30 6 * * 0-4"
+    - cron: "30 9 * * 0-4"
+    - cron: "30 12 * * 0-4"
+  workflow_dispatch: {}
+
+jobs:
+  stories:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - name: Write the stories
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          ANNOUNCE_AUTOPUBLISH: ${{ vars.ANNOUNCE_AUTOPUBLISH }}
+        run: python announcement_stories.py
