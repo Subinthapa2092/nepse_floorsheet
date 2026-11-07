@@ -1,0 +1,21 @@
+name: Probe NEPSE reports 2
+
+# One-time look at (A) what files NEPSE's company disclosures carry and (B) what is inside NEPSE's annual report spreadsheet.
+# Reads a few pages, saves nothing. Run by hand.
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install playwright openpyxl && playwright install --with-deps chromium
+      - name: Look again
+        run: python probe_nepse2.py
