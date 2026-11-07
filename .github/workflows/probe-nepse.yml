@@ -1,0 +1,20 @@
+name: Probe NEPSE reports
+
+# One-time look at whether nepalstock.com publishes company financial figures as data. Reads a few pages, saves nothing. Run by hand.
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install playwright && playwright install --with-deps chromium
+      - name: Look at NEPSE
+        run: python probe_nepse.py
