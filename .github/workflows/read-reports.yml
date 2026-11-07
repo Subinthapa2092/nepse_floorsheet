@@ -15,6 +15,10 @@ on:
       symbol:
         description: "Only this company (optional), e.g. NABIL"
         default: ""
+      export_pictures:
+        description: "Only copy the pictures out as a download (no reading)"
+        type: boolean
+        default: false
 
 jobs:
   read:
@@ -34,6 +38,7 @@ jobs:
         run: |
           ARGS="--limit ${{ github.event.inputs.limit }}"
           if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then ARGS="$ARGS --dry-run"; fi
+          if [ "${{ github.event.inputs.export_pictures }}" = "true" ]; then ARGS="$ARGS --export"; fi
           if [ -n "${{ github.event.inputs.symbol }}" ]; then ARGS="$ARGS --symbol ${{ github.event.inputs.symbol }}"; fi
           python read_reports.py $ARGS
       - name: Keep the pictures that were hard to read

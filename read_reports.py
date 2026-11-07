@@ -6,6 +6,7 @@ NOTHING is published by this script: you approve the figures first. Each figure 
     python read_reports.py                    # read up to 30 new reports and save the figures
     python read_reports.py --limit 100        # more at once
     python read_reports.py --symbol NABIL     # one company
+    python read_reports.py --export --limit 60   # copy the pictures out (no reading) so they can be read by eye
     python read_reports.py --redo             # read again even if the report was read before (published figures are never touched)
 
 Needs: tesseract (apt install tesseract-ocr), pip install pillow numpy httpx supabase python-dotenv
@@ -67,11 +68,12 @@ def detect_period(text):
     return None, None
 
 
-def confidence(measure, checks_ok):
-    if measure in ("net_profit", "paid_up_capital", "eps_annualized") and checks_ok is True:
-        return "checked"
-    if checks_ok is False and measure in ("net_profit", "paid_up_capital", "eps_annualized"):
+def confidence(measure, checks_ok, agree=1):
+    """checked = the EPS cross-check passed, or two reading passes gave the same number. mismatch = the cross-check failed."""
+    if measure in ("net_profit", "paid_up_capital", "eps_annualized") and checks_ok is False:
         return "mismatch"
+    if (measure in ("net_profit", "paid_up_capital", "eps_annualized") and checks_ok is True) or agree >= 2:
+        return "checked"
     return "single"
 
 
@@ -80,15 +82,16 @@ def main():
     redo = "--redo" in sys.argv
     limit = int(sys.argv[sys.argv.index("--limit") + 1]) if "--limit" in sys.argv else 30
     only = sys.argv[sys.argv.index("--symbol") + 1].upper() if "--symbol" in sys.argv else None
+    export = "--export" in sys.argv
     if not os.environ.get("SUPABASE_URL") or not os.environ.get("SUPABASE_SERVICE_ROLE_KEY"):
         sys.exit("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are missing. Put them in the .env file here, or run the workflow on GitHub.")
     from supabase import create_client
 
     sb = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"])
-    return run(sb, dry, redo, limit, only)
+    return run(sb, dry, redo, limit, only, export)
 
 
-def run(sb, dry, redo, limit, only):
+def run(sb, dry, redo, limit, only, export=False):
     docs = sb.table("report_docs").select("announcement_id,doc_path").limit(5000).execute().data or []
     reps = {r["announcement_id"]: r for r in (sb.table("quarterly_reports").select("symbol,announcement_id,fiscal_year,date_text").limit(5000).execute().data or [])}
     done = set()
@@ -123,6 +126,16 @@ def run(sb, dry, redo, limit, only):
     print(f"{len(docs)} rows in report_docs. Left out: " + ", ".join(f"{k} {v}" for k, v in why.items() if v) + f". {len(todo)} pictures to read, reading {min(limit, len(todo))}.\n")
     keep = Path("debug_pics")
     kept = 0
+    if export:  # just copy the pictures out so they can be read by eye: no reading, nothing saved to the database
+        keep.mkdir(exist_ok=True)
+        for aid, sym, path in todo[:limit]:
+            try:
+                (keep / f"{sym}_{aid}.{path.rsplit('.', 1)[-1].lower()}").write_bytes(sb.storage.from_(BUCKET).download(path))
+                kept += 1
+            except Exception as e:
+                print(f"{sym} {aid}: could not copy ({str(e)[:80]})")
+        print(f"Copied {kept} pictures. On the run page, open Artifacts at the bottom and download debug-pictures.")
+        return 0
 
     summary = {"ok": 0, "mismatch": 0, "no_check": 0, "no_period": 0, "error": 0}
     for aid, sym, path in todo[:limit]:
@@ -131,7 +144,7 @@ def run(sb, dry, redo, limit, only):
             with tempfile.TemporaryDirectory() as td:
                 f = Path(td) / ("r." + path.rsplit(".", 1)[-1])
                 f.write_bytes(blob)
-                res = rr.read(str(f))
+                res = rr.read_multi(str(f))
         except Exception as e:
             summary["error"] += 1
             print(f"{sym:8s} {aid}: could not read ({str(e)[:80]})")
@@ -164,7 +177,7 @@ def run(sb, dry, redo, limit, only):
                 continue  # a figure you already approved or rejected is never overwritten
             rows.append({
                 "symbol": sym, "fiscal_year": fy, "period": period, "metric": metric, "value": v["value"], "status": "review",
-                "confidence": confidence(metric, eps_chk), "source": aid, "source_url": None,
+                "confidence": confidence(metric, eps_chk, v.get("agree", 1)), "source": aid, "source_url": None,
                 "note": None if eps_chk is not False else "EPS does not match profit / share capital",
             })
         if rows:

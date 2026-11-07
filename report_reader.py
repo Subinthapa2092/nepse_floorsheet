@@ -18,7 +18,7 @@ import numpy as np
 from PIL import Image
 
 SCALE = 2
-DARK = 90
+DARK = 150
 
 
 def ocr_words(path):
@@ -55,15 +55,28 @@ def heading_text(path):
 
 
 def split_columns(words, width):
-    """The page is one or two columns of tables. Pick the vertical line that cuts the fewest words."""
-    best, best_x = None, None
-    for i in range(int(width * 0.38), int(width * 0.62), 4):
-        crossing = sum(1 for l, t, w, h, _ in words if l < i < l + w)
-        if best is None or crossing < best:
-            best, best_x = crossing, i
-    left = [w for w in words if w[0] + w[2] / 2 < best_x]
-    right = [w for w in words if w[0] + w[2] / 2 >= best_x]
-    return [left, right]
+    """One or two page columns. Find the widest empty vertical strip in the middle of the page and cut there.
+    If there is no real empty strip, the page is read as one block."""
+    step = 4
+    n = int(width // step) + 1
+    cover = [0] * n
+    for l, t, w, h, _ in words:
+        for i in range(int(l // step), min(n - 1, int((l + w) // step)) + 1):
+            cover[i] += 1
+    lo, hi = int(n * 0.33), int(n * 0.67)
+    best_len, best_mid, run_start = 0, None, None
+    for i in range(lo, hi + 1):
+        empty = i < hi and cover[i] <= 2
+        if empty and run_start is None:
+            run_start = i
+        if not empty and run_start is not None:
+            if i - run_start > best_len:
+                best_len, best_mid = i - run_start, (run_start + i) // 2
+            run_start = None
+    if best_mid is None or best_len * step < 14:
+        return [list(words)]
+    cut = best_mid * step
+    return [[w for w in words if w[0] + w[2] / 2 < cut], [w for w in words if w[0] + w[2] / 2 >= cut]]
 
 
 def to_lines(words):
@@ -217,6 +230,42 @@ def read(path):
                     if old is None or sum(x is not None for x in nums) > sum(x is not None for x in old["numbers"]):  # the full table row has the most numbers
                         found[measure] = {"value": v, "label": label, "numbers": nums}
     return {"unit": unit, "has_group_and_bank": has_bank, "lines": lines_seen, "found": found, "text": text_all, "heading": heading_text(path)}
+
+
+VARIANTS = [(90, 2), (150, 2), (120, 3)]  # (darkness cut-off, enlargement): scans differ, so no single setting suits all
+
+
+def read_multi(path, variants=VARIANTS):
+    """Reads the picture several ways and keeps, for each figure, the value most passes agree on.
+    Two independent passes giving the same number is strong evidence; a lone value stays 'single'."""
+    global DARK, SCALE
+    saved = (DARK, SCALE)
+    runs = []
+    try:
+        for dark, scale in variants:
+            DARK, SCALE = dark, scale
+            runs.append(read(path))
+    finally:
+        DARK, SCALE = saved
+    merged = {}
+    metrics = {m for r in runs for m in r["found"]}
+    for m in metrics:
+        votes = {}
+        for r in runs:
+            if m in r["found"]:
+                v = round(r["found"][m]["value"], 4)
+                votes.setdefault(v, []).append(r["found"][m])
+        best = max(votes.items(), key=lambda kv: (len(kv[1]), len(kv[1][0]["numbers"])))
+        item = dict(best[1][0])
+        item["agree"] = len(best[1])
+        item["passes"] = len(runs)
+        item["others"] = [v for v in votes if v != best[0]]
+        merged[m] = item
+    first = max(runs, key=lambda r: len(r["found"]))
+    return {
+        "unit": first["unit"], "has_group_and_bank": first["has_group_and_bank"], "lines": first["lines"], "found": merged,
+        "text": " ".join(r["text"] for r in runs), "heading": " ".join(r["heading"] for r in runs[:1]),
+    }
 
 
 def checks(res):
